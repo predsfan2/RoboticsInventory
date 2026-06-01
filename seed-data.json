@@ -1,0 +1,52 @@
+{
+  "rt:users": [
+    {
+      "id": "user-1",
+      "name": "Admin",
+      "password": "admin123",
+      "role": "Admin"
+    }
+  ],
+  "rt:locs": [
+    {
+      "id": "loc-1",
+      "name": "Trailer"
+    }
+  ],
+  "rt:items": [
+    {
+      "id": "item-1",
+      "name": "Example Tool",
+      "itemNumber": "TOOL-001",
+      "category": "Tools",
+      "totalQty": 1,
+      "condition": "Good",
+      "currentLocation": "Trailer",
+      "currentPerson": "",
+      "notes": "Seed data example item",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "conditionLog": [],
+      "locationLog": [],
+      "invoices": [],
+      "comments": [],
+      "quantityLog": [],
+      "imageUrl": "",
+      "customFields": {},
+      "minStock": 1,
+      "isKit": false,
+      "components": []
+    }
+  ],
+  "rt:units": [],
+  "rt:purchases": [],
+  "rt:borrows": [],
+  "rt:moveRequests": [],
+  "rt:auditLog": [],
+  "rt:customFields": [],
+  "rt:accountingTransactions": [],
+  "rt:budgets": [],
+  "rt:savingsGoals": [],
+  "rt:reimbursements": [],
+  "rt:fundraisers": [],
+  "rt:activityLog": []
+}

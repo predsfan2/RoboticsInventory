@@ -1,0 +1,29 @@
+# Dependencies – never send these to the Docker daemon
+frontend/node_modules
+backend/node_modules
+node_modules
+
+# Vite / build output (built inside Docker, not from host)
+frontend/dist
+public
+
+# Runtime data (persisted via volume, not baked into image)
+backend/data
+backend/data.json
+backend/data.json.bak
+
+# Dev tooling
+frontend/.vite
+**/.DS_Store
+**/*.log
+**/.env.local
+**/.env.development
+
+# Version control
+.git
+.gitignore
+
+# Editor artifacts
+.vscode
+.idea
+**/*.swp

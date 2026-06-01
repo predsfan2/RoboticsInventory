@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    @apply bg-gray-950 text-gray-100 antialiased;
+  }
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-900;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-700 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-600;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-950 disabled:opacity-50 disabled:pointer-events-none;
+  }
+  .btn-primary {
+    @apply btn bg-indigo-600 hover:bg-indigo-500 text-white focus:ring-indigo-500;
+  }
+  .btn-secondary {
+    @apply btn bg-gray-800 hover:bg-gray-700 text-gray-200 focus:ring-gray-600;
+  }
+  .btn-danger {
+    @apply btn bg-red-700 hover:bg-red-600 text-white focus:ring-red-500;
+  }
+  .btn-ghost {
+    @apply btn hover:bg-gray-800 text-gray-400 hover:text-gray-200 focus:ring-gray-600;
+  }
+  .input {
+    @apply w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-colors;
+  }
+  .card {
+    @apply bg-gray-900 rounded-xl border border-gray-800;
+  }
+  .badge {
+    @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium;
+  }
+  .badge-good {
+    @apply badge bg-emerald-900/60 text-emerald-400 border border-emerald-800/50;
+  }
+  .badge-fair {
+    @apply badge bg-amber-900/60 text-amber-400 border border-amber-800/50;
+  }
+  .badge-poor {
+    @apply badge bg-red-900/60 text-red-400 border border-red-800/50;
+  }
+  .badge-new {
+    @apply badge bg-blue-900/60 text-blue-400 border border-blue-800/50;
+  }
+  .modal-overlay {
+    @apply fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4;
+  }
+  .modal-panel {
+    @apply card w-full max-h-[90vh] overflow-y-auto shadow-2xl;
+  }
+  .tab-btn {
+    @apply px-4 py-2 text-sm font-medium border-b-2 transition-colors;
+  }
+  .tab-active {
+    @apply border-indigo-500 text-indigo-400;
+  }
+  .tab-inactive {
+    @apply border-transparent text-gray-500 hover:text-gray-300 hover:border-gray-600;
+  }
+}

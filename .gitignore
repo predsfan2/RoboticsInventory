@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# Build output (built inside Docker, not committed)
+public/
+frontend/dist/
+
+# Runtime data (persisted via Docker volume, never committed)
+backend/data/
+*.bak
+*.tmp
+
+# Environment secrets
+.env
+.env.local
+.env.production
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo

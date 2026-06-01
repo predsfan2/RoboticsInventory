@@ -1,0 +1,15 @@
+services:
+  inventory-app:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - inventory-data:/app/backend/data
+    environment:
+      - DATA_DIR=/app/backend/data
+      - PORT=3000
+      - NODE_ENV=production
+    restart: unless-stopped
+
+volumes:
+  inventory-data:
