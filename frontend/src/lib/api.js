@@ -98,10 +98,14 @@ export const getReimbursements = () => api.get('/reimbursements');
 export const createReimbursement = (body) => api.post('/reimbursements', body);
 export const approveReimbursement = (id) => api.post(`/reimbursements/${id}/approve`);
 export const denyReimbursement = (id, reason) => api.post(`/reimbursements/${id}/deny`, { reason });
+export const deleteReimbursement = (id) => api.del(`/reimbursements/${id}`);
+export const uploadReceipt = (base64, name, mimeType) =>
+  api.post('/receipts/upload', { base64, name, mimeType });
 
 export const getFundraisers = () => api.get('/fundraisers');
 export const createFundraiser = (body) => api.post('/fundraisers', body);
 export const addDonation = (id, body) => api.post(`/fundraisers/${id}/donations`, body);
+export const addQuickTotal = (id, body) => api.post(`/fundraisers/${id}/quick-total`, body);
 
 export const getBalanceSheet = () => api.get('/reports/balance-sheet');
 export const getBudgetVsActual = () => api.get('/reports/budget-vs-actual');

@@ -181,7 +181,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {canInventory && (
           <>
-            <StatCard icon="📦" label="Total Items" value={items.length} sub={`${items.reduce((s, i) => s + i.totalQty, 0)} units`} color="indigo" />
+            <StatCard icon="📦" label="Total Units" value={items.reduce((s, i) => s + (i.totalQty || 0), 0)} sub={`across ${items.length} item${items.length !== 1 ? 's' : ''}`} color="indigo" />
             <StatCard icon="⚠" label="Low Stock" value={lowStock.length} sub="below minimum" color="amber" />
           </>
         )}

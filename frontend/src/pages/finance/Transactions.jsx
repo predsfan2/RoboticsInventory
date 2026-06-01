@@ -1,30 +1,57 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   getTransactions, createTransaction, updateTransaction, deleteTransaction,
-  getBalance, getPurchases,
+  getBalance, getPurchases, uploadReceipt,
 } from '../../lib/api';
 import { useAuth, useToast } from '../../App';
 import { TRANSACTION_TYPES, CATEGORIES } from '../../lib/constants';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import ReceiptField from '../../components/ReceiptField';
 
 const TYPE_STYLES = {
-  Purchase:        'bg-red-900/50 text-red-400 border-red-800/50',
-  Donation:        'bg-emerald-900/50 text-emerald-400 border-emerald-800/50',
-  FundraiserIncome:'bg-blue-900/50 text-blue-400 border-blue-800/50',
-  Reimbursement:   'bg-amber-900/50 text-amber-400 border-amber-800/50',
+  Purchase:         'bg-red-900/50 text-red-400 border-red-800/50',
+  Donation:         'bg-emerald-900/50 text-emerald-400 border-emerald-800/50',
+  FundraiserIncome: 'bg-blue-900/50 text-blue-400 border-blue-800/50',
+  Reimbursement:    'bg-amber-900/50 text-amber-400 border-amber-800/50',
 };
-
 const INCOME_TYPES = new Set(['Donation', 'FundraiserIncome']);
+
+const ALL_CATEGORIES = [
+  ...CATEGORIES,
+  'Travel', 'Food', 'Registration', 'Fundraiser', 'Savings', 'Reimbursement', 'Other',
+];
 
 function TxFormModal({ initial, purchases, onSave, onClose }) {
   const toast = useToast();
   const [form, setForm] = useState(initial || {
-    type: 'Purchase', date: new Date().toISOString().slice(0, 10),
-    description: '', amount: '', category: '', receiptUrl: '',
+    type: 'Purchase',
+    date: new Date().toISOString().slice(0, 10),
+    description: '',
+    amount: '',
+    category: '',
+    receiptUrl: '',
+    receiptName: '',
     linkedPurchaseId: '',
   });
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving]     = useState(false);
+  const [uploading, setUploading] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const handleUpload = async (file) => {
+    setUploading(true);
+    try {
+      const base64 = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload  = () => res(r.result.split(',')[1]);
+        r.onerror = rej;
+        r.readAsDataURL(file);
+      });
+      const result = await uploadReceipt(base64, file.name, file.type);
+      return result; // { url, name }
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -64,45 +91,37 @@ function TxFormModal({ initial, purchases, onSave, onClose }) {
             </div>
             <div>
               <label className="block text-xs text-gray-400 mb-1">Amount ($) *</label>
-              <input
-                type="number" step="0.01" min="0" className="input" required
-                value={form.amount} onChange={(e) => set('amount', e.target.value)}
-                placeholder="0.00"
-              />
+              <input type="number" step="0.01" min="0" className="input" required value={form.amount} onChange={(e) => set('amount', e.target.value)} placeholder="0.00" />
             </div>
             <div>
               <label className="block text-xs text-gray-400 mb-1">Category</label>
               <select className="input" value={form.category} onChange={(e) => set('category', e.target.value)}>
                 <option value="">Select…</option>
-                {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
-                <option>Travel</option>
-                <option>Food</option>
-                <option>Registration</option>
-                <option>Fundraiser</option>
-                <option>Savings</option>
-                <option>Reimbursement</option>
-                <option>Other</option>
+                {ALL_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
               </select>
-            </div>
-            <div className="col-span-2">
-              <label className="block text-xs text-gray-400 mb-1">Receipt URL</label>
-              <input className="input" value={form.receiptUrl} onChange={(e) => set('receiptUrl', e.target.value)} placeholder="https://… or paste Google Drive link" />
             </div>
             {form.type === 'Purchase' && (
               <div className="col-span-2">
                 <label className="block text-xs text-gray-400 mb-1">Link to Purchase Order</label>
                 <select className="input" value={form.linkedPurchaseId || ''} onChange={(e) => set('linkedPurchaseId', e.target.value)}>
                   <option value="">None</option>
-                  {purchases.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name} – {p.status}</option>
-                  ))}
+                  {purchases.map((p) => <option key={p.id} value={p.id}>{p.name} – {p.status}</option>)}
                 </select>
               </div>
             )}
+            <div className="col-span-2">
+              <label className="block text-xs text-gray-400 mb-1">Receipt</label>
+              <ReceiptField
+                value={form.receiptUrl}
+                onChange={(url, name) => setForm((f) => ({ ...f, receiptUrl: url, receiptName: name || f.receiptName }))}
+                onUpload={handleUpload}
+                uploading={uploading}
+              />
+            </div>
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
-            <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving…' : 'Save'}</button>
+            <button type="submit" disabled={saving || uploading} className="btn-primary">{saving ? 'Saving…' : 'Save'}</button>
           </div>
         </form>
       </div>
@@ -112,15 +131,15 @@ function TxFormModal({ initial, purchases, onSave, onClose }) {
 
 export default function Transactions() {
   const { user } = useAuth();
-  const toast = useToast();
-  const [txns, setTxns] = useState([]);
+  const toast    = useToast();
+  const [txns, setTxns]           = useState([]);
   const [purchases, setPurchases] = useState([]);
-  const [balance, setBalance] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [balance, setBalance]     = useState(null);
+  const [loading, setLoading]     = useState(true);
   const [filterType, setFilterType] = useState('');
-  const [search, setSearch] = useState('');
+  const [search, setSearch]         = useState('');
   const [editTarget, setEditTarget] = useState(null);
-  const [addOpen, setAddOpen] = useState(false);
+  const [addOpen, setAddOpen]       = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
   const canEdit = ['Admin', 'Manager', 'Accounting Admin'].includes(user?.role);
@@ -136,23 +155,14 @@ export default function Transactions() {
   useEffect(() => { load(); }, [load]);
 
   const handleSave = async (form) => {
-    if (editTarget) {
-      await updateTransaction(editTarget.id, form);
-      toast('Transaction updated', 'success');
-    } else {
-      await createTransaction(form);
-      toast('Transaction added', 'success');
-    }
+    if (editTarget) { await updateTransaction(editTarget.id, form); toast('Updated', 'success'); }
+    else            { await createTransaction(form);                toast('Transaction added', 'success'); }
     load();
   };
 
   const handleDelete = async () => {
-    try {
-      await deleteTransaction(deleteTarget.id);
-      toast('Deleted', 'success');
-      setDeleteTarget(null);
-      load();
-    } catch (e) { toast(e.message, 'error'); }
+    try { await deleteTransaction(deleteTarget.id); toast('Deleted', 'success'); setDeleteTarget(null); load(); }
+    catch (e) { toast(e.message, 'error'); }
   };
 
   const filtered = useMemo(() => {
@@ -160,24 +170,20 @@ export default function Transactions() {
     if (filterType) list = list.filter((t) => t.type === filterType);
     if (search) {
       const q = search.toLowerCase();
-      list = list.filter((t) =>
-        t.description.toLowerCase().includes(q) ||
-        (t.category || '').toLowerCase().includes(q)
-      );
+      list = list.filter((t) => t.description.toLowerCase().includes(q) || (t.category || '').toLowerCase().includes(q));
     }
     return list;
   }, [txns, filterType, search]);
 
-  // Running balance for displayed list (newest-first → reverse for calc)
+  // Running balance (oldest → newest, then reversed for display)
   const withRunning = useMemo(() => {
-    const reversed = [...filtered].reverse();
+    const rev = [...filtered].reverse();
     let running = 0;
-    const withBal = reversed.map((t) => {
-      if (INCOME_TYPES.has(t.type)) running += t.amount;
-      else running -= t.amount;
+    const calc = rev.map((t) => {
+      INCOME_TYPES.has(t.type) ? (running += t.amount) : (running -= t.amount);
       return { ...t, running };
     });
-    return withBal.reverse();
+    return calc.reverse();
   }, [filtered]);
 
   return (
@@ -200,7 +206,7 @@ export default function Transactions() {
 
       {/* Toolbar */}
       <div className="flex gap-2 flex-wrap items-center">
-        <input className="input flex-1 min-w-48" placeholder="Search description, category…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <input className="input flex-1 min-w-48" placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} />
         <select className="input w-auto" value={filterType} onChange={(e) => setFilterType(e.target.value)}>
           <option value="">All types</option>
           {TRANSACTION_TYPES.map((t) => <option key={t}>{t}</option>)}
@@ -214,49 +220,42 @@ export default function Transactions() {
         <div className="flex items-center justify-center h-40 text-gray-600">Loading…</div>
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-40 text-gray-600 gap-2">
-          <span className="text-4xl">💳</span>
-          <p>No transactions yet</p>
+          <span className="text-4xl">💳</span><p>No transactions yet</p>
         </div>
       ) : (
         <div className="card overflow-hidden">
-          {/* Header row */}
-          <div className="hidden md:grid grid-cols-[100px_1fr_120px_80px_90px_100px_80px] gap-3 px-4 py-2 border-b border-gray-800 text-xs text-gray-600 font-medium">
-            <span>Date</span><span>Description</span><span>Category</span>
-            <span className="text-right">Amount</span><span>Type</span>
-            <span className="text-right">Balance</span><span></span>
-          </div>
           {withRunning.map((t, idx) => {
             const isIncome = INCOME_TYPES.has(t.type);
             return (
-              <div
-                key={t.id}
-                className={`flex flex-col md:grid md:grid-cols-[100px_1fr_120px_80px_90px_100px_80px] gap-2 md:gap-3 px-4 py-3 ${
-                  idx < withRunning.length - 1 ? 'border-b border-gray-800/60' : ''
-                } hover:bg-gray-800/30 transition-colors`}
-              >
-                <span className="text-xs text-gray-500 tabular-nums">{new Date(t.date).toLocaleDateString()}</span>
-                <div className="min-w-0">
+              <div key={t.id} className={`flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 px-4 py-3 ${idx < withRunning.length - 1 ? 'border-b border-gray-800/60' : ''} hover:bg-gray-800/30`}>
+                <span className="text-xs text-gray-500 tabular-nums flex-shrink-0 w-24">{new Date(t.date).toLocaleDateString()}</span>
+                <div className="flex-1 min-w-0">
                   <p className="text-sm text-gray-200 truncate">{t.description}</p>
-                  {t.receiptUrl && (
-                    <a href={t.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-400 hover:underline">📎 Receipt</a>
-                  )}
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                    {t.category && <span className="text-xs text-gray-500">{t.category}</span>}
+                    {t.receiptUrl && (
+                      <a href={t.receiptUrl} target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-indigo-400 hover:underline flex-shrink-0">
+                        📎 {t.receiptName || 'Receipt'}
+                      </a>
+                    )}
+                  </div>
                 </div>
-                <span className="text-xs text-gray-500 truncate">{t.category || '—'}</span>
-                <span className={`text-sm font-semibold tabular-nums text-right ${isIncome ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {isIncome ? '+' : '-'}${t.amount.toFixed(2)}
-                </span>
-                <span className={`badge self-start md:self-center border ${TYPE_STYLES[t.type] || 'bg-gray-800 text-gray-400 border-gray-700'}`}>
+                <span className={`badge border flex-shrink-0 ${TYPE_STYLES[t.type] || 'bg-gray-800 text-gray-400 border-gray-700'}`}>
                   {t.type === 'FundraiserIncome' ? 'Fundraiser' : t.type}
                 </span>
-                <span className={`text-sm tabular-nums text-right font-mono ${t.running >= 0 ? 'text-gray-400' : 'text-red-400'}`}>
+                <span className={`text-sm font-semibold tabular-nums flex-shrink-0 w-24 text-right ${isIncome ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {isIncome ? '+' : '-'}${t.amount.toFixed(2)}
+                </span>
+                <span className={`text-xs tabular-nums font-mono flex-shrink-0 w-20 text-right ${t.running >= 0 ? 'text-gray-500' : 'text-red-400'}`}>
                   ${t.running.toFixed(2)}
                 </span>
-                {canEdit ? (
-                  <div className="flex gap-1 justify-end">
+                {canEdit && (
+                  <div className="flex gap-1 flex-shrink-0">
                     <button onClick={() => { setEditTarget(t); setAddOpen(true); }} className="btn-ghost text-xs py-0.5 px-1.5">✏</button>
                     <button onClick={() => setDeleteTarget(t)} className="btn-ghost text-xs py-0.5 px-1.5 text-red-500">✕</button>
                   </div>
-                ) : <div />}
+                )}
               </div>
             );
           })}
@@ -264,21 +263,12 @@ export default function Transactions() {
       )}
 
       {(addOpen || editTarget) && (
-        <TxFormModal
-          initial={editTarget}
-          purchases={purchases}
-          onSave={handleSave}
-          onClose={() => { setAddOpen(false); setEditTarget(null); }}
-        />
+        <TxFormModal initial={editTarget} purchases={purchases} onSave={handleSave}
+          onClose={() => { setAddOpen(false); setEditTarget(null); }} />
       )}
       {deleteTarget && (
-        <ConfirmDialog
-          title="Delete Transaction"
-          message={`Delete "${deleteTarget.description}"?`}
-          confirmLabel="Delete" dangerous
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteTarget(null)}
-        />
+        <ConfirmDialog title="Delete Transaction" message={`Delete "${deleteTarget.description}"?`}
+          confirmLabel="Delete" dangerous onConfirm={handleDelete} onCancel={() => setDeleteTarget(null)} />
       )}
     </div>
   );
