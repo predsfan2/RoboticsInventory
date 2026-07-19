@@ -1,18 +1,45 @@
 # Robotics Inventory App
 
-A full-stack inventory and accounting system for robotics teams.
-Dark-themed React frontend (Vite + Tailwind) + Node/Express backend with a flat-file JSON database.
+Full-stack inventory and accounting for robotics teams: track parts and kits, moves and borrows, purchases, and team finance.
+
+**Stack:** React 18 + Vite + Tailwind · Node/Express · flat-file JSON database · Docker multi-stage image
+
+| Doc | Audience |
+|-----|----------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | System design, data model, auth, API/frontend maps |
+| [AGENTS.md](AGENTS.md) | AI/agent code index, edit recipes, customization cookbook |
+
+---
+
+## Repository map
+
+```
+.
+├── backend/
+│   ├── server.js          # Boot, auth middleware, route mounts, SPA serve
+│   ├── routes/            # Express routers (items, moves, finance, admin, …)
+│   └── utils/             # storage.js (JSON DB), migration.js
+├── frontend/
+│   └── src/
+│       ├── App.jsx        # Auth/toast context, routes, permissions gates
+│       ├── pages/         # Screen-level views (+ finance/ sub-tabs)
+│       ├── components/    # Shared UI (Layout, Login, search, …)
+│       ├── modals/        # Item/move/unit dialogs
+│       └── lib/           # api.js, constants.js, permissions.js
+├── seed-data.json         # Initial DB when data.json is missing
+├── Dockerfile             # Build frontend → production Node image
+└── docker-compose.yml     # Port 3000 + persistent data volume
+```
 
 ---
 
 ## Quick Start (Docker)
 
 ### Prerequisites
+
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows/Mac) or Docker + Docker Compose (Linux)
 
-### 1. Clone / copy the project
-
-Place all project files in a single folder. The structure should look like:
+### 1. Place project files
 
 ```
 inventory-app/
@@ -25,19 +52,11 @@ inventory-app/
 
 ### 2. (Optional) Seed with existing data
 
-If you have an existing `data.json` from a previous install, copy it into the project root and rename it `seed-data.json`. The migration will run automatically on first start and normalise old fields.
+If you have an existing `data.json` from a previous install, copy it into the project root and rename it `seed-data.json`. Migration runs automatically on first start and normalises legacy fields.
 
 ### 3. Fix line endings (Linux / WSL only)
 
-If files were edited on Windows and you are deploying on Linux, run:
-
-```bash
-find . -type f \( -name "*.js" -o -name "*.json" -o -name "*.html" \
-  -o -name "*.css" -o -name "*.md" -o -name "*.yml" -o -name "*.yaml" \) \
-  -exec sed -i 's/\r$//' {} \;
-```
-
-Or use the included helper script:
+If files were edited on Windows and you are deploying on Linux:
 
 ```bash
 bash fix-line-endings.sh
@@ -49,8 +68,7 @@ bash fix-line-endings.sh
 docker compose up -d
 ```
 
-The first run builds the frontend and installs all dependencies — this takes 2–4 minutes.
-Subsequent starts are instant (image is cached).
+First build installs dependencies and compiles the frontend. Later starts reuse the cached image.
 
 ### 5. Open the app
 
@@ -58,8 +76,7 @@ Subsequent starts are instant (image is cached).
 http://localhost:3000
 ```
 
-Default admin account: **Admin / admin123**
-Change this password immediately via Admin → Team after first login.
+**First login:** credentials come from `seed-data.json`. On first start, migration converts legacy `pin` fields into `password`. Change passwords immediately via **Team** after first login.
 
 ---
 
@@ -85,7 +102,7 @@ npm install
 npm run dev
 ```
 
-Runs on **http://localhost:5173**. API calls are proxied to `:3001` via Vite config.
+Runs on **http://localhost:5173**. API and uploads are proxied to `:3001` via Vite.
 
 ### Build frontend for backend to serve
 
@@ -132,7 +149,7 @@ docker run --rm \
   alpine cp -r /backup/. /data/
 ```
 
-### Manual backup (just copy the JSON)
+### Manual backup (JSON only)
 
 ```bash
 docker compose exec inventory-app cat /app/backend/data/data.json > data-backup.json
@@ -142,15 +159,15 @@ docker compose exec inventory-app cat /app/backend/data/data.json > data-backup.
 
 ## Configuration
 
-All configuration is via environment variables (set in `docker-compose.yml` or a `.env` file):
+Environment variables (set in `docker-compose.yml` or a `.env` file):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PORT` | `3000` | Port the server listens on |
+| `PORT` | `3000` (Docker) / `3001` (local backend) | Port the server listens on |
 | `DATA_DIR` | `./backend/data` | Directory for `data.json` and uploads |
 | `NODE_ENV` | `development` | Set to `production` in Docker |
 
-### Using a .env file
+### Using a `.env` file
 
 Create `.env` in the project root:
 
@@ -168,9 +185,27 @@ NODE_ENV=production
 |------|-------------|
 | **Admin** | Full access — users, locations, items, accounting, audit |
 | **Manager** | Approve moves/reimbursements, manage purchases, view accounting |
-| **Accounting Admin** | Access to Finance section only |
+| **Accounting Admin** | Access to Finance section only (plus limited inventory/purchase view) |
 | **Member** | Request moves, borrow items, submit reimbursements, comment |
 | **Viewer** | Read-only access to inventory |
+
+Granular per-user permission arrays can override role defaults (see Team admin UI and [AGENTS.md](AGENTS.md)).
+
+---
+
+## Customization
+
+Common knobs without a rewrite:
+
+| What | Where |
+|------|-------|
+| Categories, conditions, nav, role defaults (UI) | `frontend/src/lib/constants.js` |
+| Role default permissions (migration / new users) | `backend/utils/migration.js` |
+| Bootstrap team / locations / items | `seed-data.json` (used only when `data.json` is absent) |
+| Port and data directory | env vars / `docker-compose.yml` |
+| Item custom-field definitions | `rt:customFields` via `/api/custom-fields` |
+
+Full recipes for agents and contributors: **[Customization cookbook in AGENTS.md](AGENTS.md#customization-cookbook)**.
 
 ---
 
@@ -178,18 +213,22 @@ NODE_ENV=production
 
 On every startup the server:
 
-1. Checks if `backend/data/data.json` exists.
-2. If not, copies `seed-data.json` as the initial database.
-3. Runs the idempotent migration to add any missing tables and normalise legacy fields.
+1. Ensures `DATA_DIR` exists.
+2. If `backend/data/data.json` is missing, copies `seed-data.json` (or writes an empty skeleton).
+3. Runs the idempotent migration to add missing tables and normalise legacy fields.
 
-The migration is safe to run multiple times — it skips tables that already exist and only adds missing fields.
+Migration is safe to run multiple times — it skips tables that already exist and only fills missing fields.
 
 ---
 
 ## File Uploads
 
-Images and invoice attachments are stored in `backend/data/uploads/`.
-They are included in the Docker volume and will persist across container restarts.
-Maximum upload size: **4 MB per file**.
+Images and invoice/receipt attachments are stored in `backend/data/uploads/`.
+They live on the Docker volume and persist across restarts.
 
-Supported formats: JPEG, PNG, GIF, PDF, DOC/DOCX, XLS/XLSX, CSV.
+| Upload type | Max size |
+|-------------|----------|
+| Item images / invoices | **4 MB** |
+| Finance receipts | **10 MB** |
+
+Supported formats (typical): JPEG, PNG, GIF, PDF, DOC/DOCX, XLS/XLSX, CSV.
