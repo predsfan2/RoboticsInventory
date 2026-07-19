@@ -4,6 +4,7 @@ import {
   getBalance, getPurchases, uploadReceipt,
 } from '../../lib/api';
 import { useAuth, useToast } from '../../App';
+import { hasPermission } from '../../lib/permissions';
 import { TRANSACTION_TYPES, CATEGORIES } from '../../lib/constants';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import ReceiptField from '../../components/ReceiptField';
@@ -142,7 +143,7 @@ export default function Transactions() {
   const [addOpen, setAddOpen]       = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
-  const canEdit = ['Admin', 'Manager', 'Accounting Admin'].includes(user?.role);
+  const canEdit = hasPermission(user, 'finance.edit');
 
   const load = useCallback(() => {
     setLoading(true);

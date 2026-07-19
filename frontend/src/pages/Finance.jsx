@@ -6,6 +6,7 @@ import SavingsGoals from './finance/SavingsGoals';
 import Reimbursements from './finance/Reimbursements';
 import Fundraisers from './finance/Fundraisers';
 import Reports from './finance/Reports';
+import { hasPermission } from '../lib/permissions';
 
 const TABS = [
   { id: 'transactions', label: 'Transactions', icon: '💳' },
@@ -20,12 +21,11 @@ export default function Finance() {
   const { user } = useAuth();
   const [tab, setTab] = useState('transactions');
 
-  const canFinance = ['Admin', 'Manager', 'Accounting Admin'].includes(user?.role);
-  if (!canFinance) {
+  if (!hasPermission(user, 'finance.view')) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-gray-600 gap-2">
         <span className="text-4xl">🔒</span>
-        <p>Finance is restricted to Managers and Admins.</p>
+        <p>Finance is restricted to users with finance access.</p>
       </div>
     );
   }

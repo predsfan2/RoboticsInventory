@@ -4,9 +4,11 @@ import {
   deleteInvoice, updateUnit,
 } from '../lib/api';
 import { useAuth, useToast } from '../App';
+import { hasPermission } from '../lib/permissions';
 import { CONDITION_COLORS, CONDITIONS } from '../lib/constants';
 import ConditionUpdateModal from './ConditionUpdateModal';
 import UnitManagerModal from './UnitManagerModal';
+import KitContentsTab from './KitContentsTab';
 
 function Tab({ label, active, onClick }) {
   return (
@@ -22,7 +24,7 @@ function OverviewTab({ item, onRefresh }) {
   const [adjChange, setAdjChange] = useState('');
   const [adjReason, setAdjReason] = useState('');
   const [adjusting, setAdjusting] = useState(false);
-  const canEdit = ['Admin', 'Manager'].includes(user?.role);
+  const canEdit = hasPermission(user, 'inventory.edit');
 
   const handleAdj = async (delta) => {
     const change = parseInt(adjChange, 10);
@@ -42,6 +44,10 @@ function OverviewTab({ item, onRefresh }) {
   };
 
   const isLowStock = item.totalQty <= item.minStock && item.minStock > 0;
+  const kitPieceCount = item.isKit ? (item.components || []).length : 0;
+  const kitTypeCount = item.isKit
+    ? new Set((item.components || []).map((c) => c.itemId)).size
+    : 0;
 
   return (
     <div className="space-y-5">
@@ -54,6 +60,7 @@ function OverviewTab({ item, onRefresh }) {
           { label: 'Location', value: item.currentLocation || '—' },
           { label: 'Assigned To', value: item.currentPerson || '—' },
           { label: 'Min Stock', value: item.minStock || 0 },
+          ...(item.isKit ? [{ label: 'Kit Contents', value: `${kitPieceCount} pcs · ${kitTypeCount} types` }] : []),
         ].map(({ label, value, warn }) => (
           <div key={label} className="bg-gray-800/60 rounded-lg p-3">
             <p className="text-xs text-gray-500 mb-1">{label}</p>
@@ -72,6 +79,20 @@ function OverviewTab({ item, onRefresh }) {
         <div>
           <p className="text-xs text-gray-500 mb-1">Notes</p>
           <p className="text-sm text-gray-300 whitespace-pre-wrap">{item.notes}</p>
+        </div>
+      )}
+
+      {item.customFields && Object.keys(item.customFields).length > 0 && (
+        <div>
+          <p className="text-xs text-gray-500 mb-2 font-medium uppercase tracking-wide">Custom Fields</p>
+          <div className="grid grid-cols-2 gap-2">
+            {Object.entries(item.customFields).map(([k, v]) => (
+              <div key={k} className="bg-gray-800/60 rounded-lg p-3">
+                <p className="text-xs text-gray-500 mb-1">{k}</p>
+                <p className="text-sm text-gray-200">{v === '' || v == null ? '—' : String(v)}</p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -224,7 +245,7 @@ function FilesTab({ item, onRefresh }) {
   const toast = useToast();
   const { user } = useAuth();
   const [uploading, setUploading] = useState(false);
-  const canEdit = ['Admin', 'Manager'].includes(user?.role);
+  const canEdit = hasPermission(user, 'inventory.edit');
 
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -394,7 +415,7 @@ export default function ItemDetailModal({ item: initialItem, locations, onClose,
   const [tab, setTab] = useState('overview');
   const [conditionModalOpen, setConditionModalOpen] = useState(false);
   const { user } = useAuth();
-  const canEdit = ['Admin', 'Manager'].includes(user?.role);
+  const canEdit = hasPermission(user, 'inventory.edit');
 
   useEffect(() => {
     const handler = (e) => { if (e.key === 'Escape') onClose(); };
@@ -416,6 +437,7 @@ export default function ItemDetailModal({ item: initialItem, locations, onClose,
 
   const tabs = [
     { id: 'overview', label: 'Overview' },
+    ...(item.isKit ? [{ id: 'contents', label: `Contents (${(item.components || []).length})` }] : []),
     { id: 'comments', label: `Comments (${item.comments?.length || 0})` },
     { id: 'history', label: 'History' },
     { id: 'files', label: `Files (${item.invoices?.length || 0})` },
@@ -459,6 +481,7 @@ export default function ItemDetailModal({ item: initialItem, locations, onClose,
         {/* Tab content */}
         <div className="p-5">
           {tab === 'overview' && <OverviewTab item={item} onRefresh={refresh} />}
+          {tab === 'contents' && <KitContentsTab item={item} onRefresh={refresh} />}
           {tab === 'comments' && <CommentsTab item={item} onRefresh={refresh} />}
           {tab === 'history' && <HistoryTab item={item} />}
           {tab === 'files' && <FilesTab item={item} onRefresh={refresh} />}

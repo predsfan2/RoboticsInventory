@@ -4,6 +4,7 @@ import { useAuth, useToast } from '../App';
 import { ROLES, PERMISSION_GROUPS, ROLE_DEFAULT_PERMISSIONS } from '../lib/constants';
 import { getDefaultPermissions } from '../lib/permissions';
 import ConfirmDialog from '../components/ConfirmDialog';
+import CustomFieldsAdmin from '../components/CustomFieldsAdmin';
 
 const ROLE_BADGE = {
   Admin:             'bg-red-900/60 text-red-400 border-red-800/50',
@@ -336,6 +337,8 @@ export default function Team() {
           })}
         </div>
       )}
+
+      <CustomFieldsAdmin />
 
       {/* Role guide */}
       <div className="mt-6 card p-4">

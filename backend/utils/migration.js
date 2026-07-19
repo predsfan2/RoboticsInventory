@@ -13,7 +13,7 @@ var ROLE_DEFAULT_PERMISSIONS = {
     'moves.request','moves.approve',
     'purchases.view','purchases.edit',
     'borrows.view','borrows.manage',
-    'finance.view','finance.edit',
+    'finance.view','finance.edit','finance.reimburse',
     'approvals.manage','audit.view',
     'admin.users','admin.locations',
   ],
@@ -22,13 +22,13 @@ var ROLE_DEFAULT_PERMISSIONS = {
     'moves.request','moves.approve',
     'purchases.view','purchases.edit',
     'borrows.view','borrows.manage',
-    'finance.view','finance.edit',
+    'finance.view','finance.edit','finance.reimburse',
     'approvals.manage','audit.view',
   ],
   'Accounting Admin': [
     'inventory.view',
     'purchases.view',
-    'finance.view','finance.edit',
+    'finance.view','finance.edit','finance.reimburse',
     'audit.view',
   ],
   Member: [
@@ -36,6 +36,7 @@ var ROLE_DEFAULT_PERMISSIONS = {
     'moves.request',
     'purchases.view','purchases.edit',
     'borrows.view','borrows.manage',
+    'finance.reimburse',
   ],
   Viewer: [
     'inventory.view',
@@ -43,6 +44,67 @@ var ROLE_DEFAULT_PERMISSIONS = {
     'borrows.view',
   ],
 };
+
+/** Expand legacy BOM-style kit components into per-piece instances. */
+function normalizeKitComponents(item) {
+  if (!Array.isArray(item.components)) {
+    item.components = [];
+    return item;
+  }
+  var kitLoc = item.currentLocation || '';
+  var kitCond = item.condition || 'Good';
+  var next = [];
+  var changed = false;
+
+  item.components.forEach(function(entry) {
+    if (!entry || typeof entry !== 'object') {
+      changed = true;
+      return;
+    }
+    // Already canonical instance row
+    if (entry.id && entry.itemId && entry.condition !== undefined) {
+      if (entry.currentLocation === undefined) entry.currentLocation = kitLoc;
+      if (entry.notes === undefined) entry.notes = '';
+      if (!entry.addedAt) entry.addedAt = new Date().toISOString();
+      next.push(entry);
+      return;
+    }
+    // Legacy BOM: { itemId, quantity } or { itemId }
+    if (entry.itemId) {
+      changed = true;
+      var qty = Math.max(1, parseInt(entry.quantity, 10) || 1);
+      for (var i = 0; i < qty; i++) {
+        next.push({
+          id: entry.id && qty === 1 ? entry.id : (item.id + '-comp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 9) + '-' + i),
+          itemId: entry.itemId,
+          condition: entry.condition || kitCond,
+          currentLocation: entry.currentLocation != null ? entry.currentLocation : kitLoc,
+          notes: entry.notes || '',
+          addedAt: entry.addedAt || new Date().toISOString(),
+        });
+      }
+      return;
+    }
+    changed = true;
+  });
+
+  if (changed || next.length !== item.components.length) {
+    item.components = next;
+    if (changed) console.log('[migration] Normalised kit components for: ' + item.name);
+  }
+  return item;
+}
+
+/** Ensure finance.reimburse is present for roles that should have it. */
+function ensureReimbursePermission(u) {
+  if (!Array.isArray(u.permissions)) return;
+  var needs = (ROLE_DEFAULT_PERMISSIONS[u.role] || []).indexOf('finance.reimburse') !== -1;
+  if (needs && u.permissions.indexOf('finance.reimburse') === -1) {
+    // Only auto-add when permissions match a known role default set (or are a subset without this new key)
+    u.permissions.push('finance.reimburse');
+    console.log('[migration] Added finance.reimburse for user: ' + u.name);
+  }
+}
 
 var TABLE_DEFAULTS = [
   'rt:users','rt:locs','rt:items','rt:units',
@@ -78,6 +140,8 @@ function migrateData(data) {
     if (!Array.isArray(u.permissions)) {
       u.permissions = (ROLE_DEFAULT_PERMISSIONS[u.role] || ROLE_DEFAULT_PERMISSIONS['Member']).slice();
       console.log('[migration] Set default permissions for user: ' + u.name);
+    } else {
+      ensureReimbursePermission(u);
     }
     return u;
   });
@@ -102,6 +166,7 @@ function migrateData(data) {
     if (!item.imageUrl)         item.imageUrl  = '';
     if (!item.createdAt)        item.createdAt = new Date().toISOString();
     if (!item.condition)        item.condition = 'Good';
+    normalizeKitComponents(item);
 
     var qty = parseInt(item.totalQty, 10) || 1;
     if (qty > 1 && !existingUnitParentIds.has(item.id)) {
@@ -199,4 +264,4 @@ function migrate(input) {
   return migrateData(input);
 }
 
-module.exports = { migrate, migrateData, migrateFile };
+module.exports = { migrate, migrateData, migrateFile, ROLE_DEFAULT_PERMISSIONS };

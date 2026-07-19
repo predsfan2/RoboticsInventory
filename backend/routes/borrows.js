@@ -2,14 +2,8 @@ const express = require('express');
 const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const { readData, writeData } = require('../utils/storage');
+const { requirePermission, requireRole } = require('../utils/auth');
 
-function requireRole(...roles) {
-  return (req, res, next) => {
-    if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-    if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
-    next();
-  };
-}
 
 function activityLog(data, action, user, itemId, itemName, details) {
   if (!data['rt:activityLog']) data['rt:activityLog'] = [];
@@ -34,7 +28,7 @@ router.get('/', (req, res) => {
 });
 
 // ── POST /api/borrows ─────────────────────────────────────────────────────────
-router.post('/', requireRole('Admin', 'Manager', 'Member'), (req, res) => {
+router.post('/', requirePermission('borrows.manage'), (req, res) => {
   const data = readData();
   const item = (data['rt:items'] || []).find((i) => i.id === req.body.itemId);
   if (!item) return res.status(404).json({ error: 'Item not found' });
@@ -67,7 +61,7 @@ router.get('/:id', (req, res) => {
 });
 
 // ── PUT /api/borrows/:id ──────────────────────────────────────────────────────
-router.put('/:id', requireRole('Admin', 'Manager'), (req, res) => {
+router.put('/:id', requirePermission('borrows.manage'), (req, res) => {
   const data = readData();
   const idx = (data['rt:borrows'] || []).findIndex((x) => x.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Borrow not found' });
@@ -81,7 +75,7 @@ router.put('/:id', requireRole('Admin', 'Manager'), (req, res) => {
 });
 
 // ── DELETE /api/borrows/:id ───────────────────────────────────────────────────
-router.delete('/:id', requireRole('Admin'), (req, res) => {
+router.delete('/:id', requirePermission('borrows.manage'), (req, res) => {
   const data = readData();
   const idx = (data['rt:borrows'] || []).findIndex((x) => x.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Borrow not found' });
@@ -91,7 +85,7 @@ router.delete('/:id', requireRole('Admin'), (req, res) => {
 });
 
 // ── POST /api/borrows/:id/return ──────────────────────────────────────────────
-router.post('/:id/return', requireRole('Admin', 'Manager', 'Member'), (req, res) => {
+router.post('/:id/return', requirePermission('borrows.manage'), (req, res) => {
   const data = readData();
   const borrow = (data['rt:borrows'] || []).find((x) => x.id === req.params.id);
   if (!borrow) return res.status(404).json({ error: 'Borrow not found' });

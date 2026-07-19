@@ -1,10 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getBorrows, createBorrow, returnBorrow, deleteBorrow, getItems } from '../lib/api';
+import { getBorrows, createBorrow, updateBorrow, returnBorrow, deleteBorrow, getItems } from '../lib/api';
 import { useAuth, useToast } from '../App';
+import { hasPermission } from '../lib/permissions';
 import ConfirmDialog from '../components/ConfirmDialog';
 
-function BorrowFormModal({ items, onSave, onClose }) {
-  const [form, setForm] = useState({ itemId: '', borrowerName: '', contact: '', expectedReturnDate: '', notes: '' });
+function BorrowFormModal({ items, initial, onSave, onClose }) {
+  const isEdit = !!initial;
+  const [form, setForm] = useState({
+    itemId: initial?.itemId || '',
+    borrowerName: initial?.borrowerName || '',
+    contact: initial?.contact || '',
+    expectedReturnDate: initial?.expectedReturnDate
+      ? String(initial.expectedReturnDate).slice(0, 10)
+      : '',
+    notes: initial?.notes || '',
+  });
   const [query, setQuery] = useState('');
   const [saving, setSaving] = useState(false);
   const toast = useToast();
@@ -15,7 +25,7 @@ function BorrowFormModal({ items, onSave, onClose }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.itemId) { toast('Select an item', 'error'); return; }
+    if (!isEdit && !form.itemId) { toast('Select an item', 'error'); return; }
     setSaving(true);
     try {
       await onSave(form);
@@ -33,44 +43,48 @@ function BorrowFormModal({ items, onSave, onClose }) {
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-panel max-w-lg p-6">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold">Add Borrow</h2>
+          <h2 className="text-lg font-semibold">{isEdit ? 'Edit Borrow' : 'Add Borrow'}</h2>
           <button onClick={onClose} className="btn-ghost">✕</button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-3">
-          {/* Item search */}
-          <div className="relative">
-            <label className="block text-xs text-gray-400 mb-1">Item *</label>
-            {selectedItem ? (
-              <div className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2">
-                <span className="text-sm text-gray-200 flex-1">{selectedItem.name}</span>
-                <button type="button" onClick={() => { setForm((f) => ({ ...f, itemId: '' })); setQuery(''); }} className="text-gray-500 hover:text-gray-300 text-sm">✕</button>
-              </div>
-            ) : (
-              <>
-                <input
-                  className="input"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search item name…"
-                />
-                {matchedItems.length > 0 && (
-                  <div className="absolute z-10 w-full mt-1 bg-gray-800 border border-gray-700 rounded-lg overflow-hidden shadow-xl">
-                    {matchedItems.map((i) => (
-                      <button
-                        key={i.id}
-                        type="button"
-                        onClick={() => { setForm((f) => ({ ...f, itemId: i.id })); setQuery(i.name); }}
-                        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-700 text-sm text-left"
-                      >
-                        <span className="text-gray-200">{i.name}</span>
-                        <span className="text-xs text-gray-500 ml-auto">×{i.totalQty}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+          {!isEdit && (
+            <div className="relative">
+              <label className="block text-xs text-gray-400 mb-1">Item *</label>
+              {selectedItem ? (
+                <div className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2">
+                  <span className="text-sm text-gray-200 flex-1">{selectedItem.name}</span>
+                  <button type="button" onClick={() => { setForm((f) => ({ ...f, itemId: '' })); setQuery(''); }} className="text-gray-500 hover:text-gray-300 text-sm">✕</button>
+                </div>
+              ) : (
+                <>
+                  <input
+                    className="input"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search item name…"
+                  />
+                  {matchedItems.length > 0 && (
+                    <div className="absolute z-10 w-full mt-1 bg-gray-800 border border-gray-700 rounded-lg overflow-hidden shadow-xl">
+                      {matchedItems.map((i) => (
+                        <button
+                          key={i.id}
+                          type="button"
+                          onClick={() => { setForm((f) => ({ ...f, itemId: i.id })); setQuery(i.name); }}
+                          className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-700 text-sm text-left"
+                        >
+                          <span className="text-gray-200">{i.name}</span>
+                          <span className="text-xs text-gray-500 ml-auto">×{i.totalQty}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+          {isEdit && selectedItem && (
+            <p className="text-sm text-gray-400">Item: <span className="text-gray-200">{selectedItem.name}</span></p>
+          )}
           <div>
             <label className="block text-xs text-gray-400 mb-1">Borrower Name *</label>
             <input className="input" required value={form.borrowerName} onChange={(e) => setForm((f) => ({ ...f, borrowerName: e.target.value }))} placeholder="Full name" />
@@ -89,7 +103,7 @@ function BorrowFormModal({ items, onSave, onClose }) {
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
-            <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving…' : 'Create Borrow'}</button>
+            <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving…' : (isEdit ? 'Save' : 'Create Borrow')}</button>
           </div>
         </form>
       </div>
@@ -105,10 +119,12 @@ export default function Borrows() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('active');
   const [addOpen, setAddOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [returning, setReturning] = useState({});
-  const canDelete = user?.role === 'Admin';
-  const canAdd = ['Admin', 'Manager', 'Member'].includes(user?.role);
+  const canDelete = hasPermission(user, 'borrows.manage') && user?.role === 'Admin';
+  const canAdd = hasPermission(user, 'borrows.manage');
+  const canEdit = hasPermission(user, 'borrows.manage');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -199,10 +215,13 @@ export default function Borrows() {
                   {b.notes && <p className="text-xs text-gray-600 mt-1 truncate">{b.notes}</p>}
                 </div>
                 <div className="flex gap-2 flex-shrink-0">
-                  {b.status === 'active' && (
+                  {b.status === 'active' && canAdd && (
                     <button onClick={() => handleReturn(b)} disabled={returning[b.id]} className="btn-primary text-xs py-1 px-3">
                       {returning[b.id] ? '…' : 'Return'}
                     </button>
+                  )}
+                  {canEdit && b.status === 'active' && (
+                    <button onClick={() => setEditTarget(b)} className="btn-secondary text-xs py-1 px-2">Edit</button>
                   )}
                   {canDelete && (
                     <button onClick={() => setDeleteTarget(b)} className="btn-ghost text-xs text-red-500">✕</button>
@@ -219,6 +238,23 @@ export default function Borrows() {
           items={items}
           onSave={async (form) => { await createBorrow(form); toast('Borrow created', 'success'); load(); }}
           onClose={() => setAddOpen(false)}
+        />
+      )}
+      {editTarget && (
+        <BorrowFormModal
+          items={items}
+          initial={editTarget}
+          onSave={async (form) => {
+            await updateBorrow(editTarget.id, {
+              borrowerName: form.borrowerName,
+              contact: form.contact,
+              expectedReturnDate: form.expectedReturnDate || null,
+              notes: form.notes,
+            });
+            toast('Borrow updated', 'success');
+            load();
+          }}
+          onClose={() => setEditTarget(null)}
         />
       )}
       {deleteTarget && (

@@ -1,18 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const { readData } = require('../utils/storage');
+const { requirePermission } = require('../utils/auth');
 
-function requireRole(...roles) {
-  return (req, res, next) => {
-    if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-    if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
-    next();
-  };
-}
 
 // ── GET /api/activity ─────────────────────────────────────────────────────────
 // Query params: page, limit, action, userId, itemId, search
-router.get('/', requireRole('Admin', 'Manager', 'Member'), (req, res) => {
+router.get('/', requirePermission('audit.view', 'inventory.view'), (req, res) => {
   const data = readData();
   let logs = [...(data['rt:activityLog'] || [])].reverse(); // newest first
 

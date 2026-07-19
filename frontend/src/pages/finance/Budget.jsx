@@ -5,6 +5,7 @@ import {
 import { Bar } from 'react-chartjs-2';
 import { getBudgets, createBudget, updateBudget, deleteBudget } from '../../lib/api';
 import { useAuth, useToast } from '../../App';
+import { hasPermission } from '../../lib/permissions';
 import ConfirmDialog from '../../components/ConfirmDialog';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
@@ -95,7 +96,7 @@ export default function Budget() {
   const [viewYear, setViewYear] = useState(THIS_YEAR);
   const [viewMonth, setViewMonth] = useState(THIS_MONTH);
 
-  const canEdit = ['Admin', 'Manager', 'Accounting Admin'].includes(user?.role);
+  const canEdit = hasPermission(user, 'finance.edit');
 
   const load = useCallback(() => {
     setLoading(true);

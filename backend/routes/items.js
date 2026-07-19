@@ -4,16 +4,10 @@ const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
 const { readData, writeData, DATA_DIR } = require('../utils/storage');
+const { requirePermission, requireRole } = require('../utils/auth');
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function requireRole(...roles) {
-  return (req, res, next) => {
-    if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-    if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
-    next();
-  };
-}
 
 function auditLog(data, action, user, itemId, itemName, before, after) {
   if (!data['rt:auditLog']) data['rt:auditLog'] = [];
@@ -51,7 +45,7 @@ router.get('/', (req, res) => {
 });
 
 // ── POST /api/items ───────────────────────────────────────────────────────────
-router.post('/', requireRole('Admin', 'Manager'), (req, res) => {
+router.post('/', requirePermission('inventory.edit'), (req, res) => {
   const data = readData();
   const now = new Date().toISOString();
   const item = {
@@ -103,7 +97,7 @@ router.post('/', requireRole('Admin', 'Manager'), (req, res) => {
 });
 
 // ── PUT /api/items/:id ────────────────────────────────────────────────────────
-router.put('/:id', requireRole('Admin', 'Manager'), (req, res) => {
+router.put('/:id', requirePermission('inventory.edit'), (req, res) => {
   const data = readData();
   const idx = (data['rt:items'] || []).findIndex((i) => i.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Item not found' });
@@ -125,7 +119,7 @@ router.put('/:id', requireRole('Admin', 'Manager'), (req, res) => {
 });
 
 // ── DELETE /api/items/:id ─────────────────────────────────────────────────────
-router.delete('/:id', requireRole('Admin'), (req, res) => {
+router.delete('/:id', requirePermission('inventory.delete'), (req, res) => {
   const data = readData();
   const idx = (data['rt:items'] || []).findIndex((i) => i.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Item not found' });
@@ -142,7 +136,7 @@ router.delete('/:id', requireRole('Admin'), (req, res) => {
 });
 
 // ── POST /api/items/:id/stock ─────────────────────────────────────────────────
-router.post('/:id/stock', requireRole('Admin', 'Manager'), (req, res) => {
+router.post('/:id/stock', requirePermission('inventory.edit'), (req, res) => {
   const data = readData();
   const item = (data['rt:items'] || []).find((i) => i.id === req.params.id);
   if (!item) return res.status(404).json({ error: 'Item not found' });
@@ -193,7 +187,7 @@ router.post('/:id/stock', requireRole('Admin', 'Manager'), (req, res) => {
 });
 
 // ── POST /api/items/:id/condition ─────────────────────────────────────────────
-router.post('/:id/condition', requireRole('Admin', 'Manager', 'Member'), (req, res) => {
+router.post('/:id/condition', requirePermission('inventory.edit', 'moves.request'), (req, res) => {
   const data = readData();
   const item = (data['rt:items'] || []).find((i) => i.id === req.params.id);
   if (!item) return res.status(404).json({ error: 'Item not found' });
@@ -217,7 +211,7 @@ router.post('/:id/condition', requireRole('Admin', 'Manager', 'Member'), (req, r
 });
 
 // ── POST /api/items/:id/move-request ──────────────────────────────────────────
-router.post('/:id/move-request', requireRole('Admin', 'Manager', 'Member'), (req, res) => {
+router.post('/:id/move-request', requirePermission('moves.request'), (req, res) => {
   const data = readData();
   const item = (data['rt:items'] || []).find((i) => i.id === req.params.id);
   if (!item) return res.status(404).json({ error: 'Item not found' });
@@ -243,7 +237,7 @@ router.post('/:id/move-request', requireRole('Admin', 'Manager', 'Member'), (req
 });
 
 // ── POST /api/items/:id/move (admin direct move) ──────────────────────────────
-router.post('/:id/move', requireRole('Admin', 'Manager'), (req, res) => {
+router.post('/:id/move', requirePermission('inventory.edit', 'moves.approve'), (req, res) => {
   const data = readData();
   const item = (data['rt:items'] || []).find((i) => i.id === req.params.id);
   if (!item) return res.status(404).json({ error: 'Item not found' });
@@ -268,6 +262,149 @@ router.post('/:id/move', requireRole('Admin', 'Manager'), (req, res) => {
   res.json(item);
 });
 
+// ── Kit helpers ───────────────────────────────────────────────────────────────
+function enrichComponents(data, kit) {
+  const itemsById = Object.fromEntries((data['rt:items'] || []).map((i) => [i.id, i]));
+  return (kit.components || []).map((c) => {
+    const cat = itemsById[c.itemId];
+    return {
+      ...c,
+      itemName: cat ? cat.name : '(missing item)',
+      itemNumber: cat ? cat.itemNumber || '' : '',
+      itemCategory: cat ? cat.category || '' : '',
+      displayLocation: c.currentLocation || kit.currentLocation || '',
+    };
+  });
+}
+
+function findKit(data, id) {
+  const kit = (data['rt:items'] || []).find((i) => i.id === id);
+  if (!kit) return { error: 'Item not found', status: 404 };
+  if (!kit.isKit) return { error: 'Item is not a kit', status: 400 };
+  if (!Array.isArray(kit.components)) kit.components = [];
+  return { kit };
+}
+
+// ── GET /api/items/:id/components ─────────────────────────────────────────────
+router.get('/:id/components', (req, res) => {
+  const data = readData();
+  const result = findKit(data, req.params.id);
+  if (result.error) return res.status(result.status).json({ error: result.error });
+  res.json(enrichComponents(data, result.kit));
+});
+
+// ── POST /api/items/:id/components ────────────────────────────────────────────
+// Body: { itemId, quantity?, condition?, currentLocation?, notes? }
+router.post('/:id/components', requirePermission('inventory.edit'), (req, res) => {
+  const data = readData();
+  const result = findKit(data, req.params.id);
+  if (result.error) return res.status(result.status).json({ error: result.error });
+  const kit = result.kit;
+
+  const catalogItem = (data['rt:items'] || []).find((i) => i.id === req.body.itemId);
+  if (!catalogItem) return res.status(404).json({ error: 'Catalog item not found' });
+  if (catalogItem.id === kit.id) return res.status(400).json({ error: 'Cannot add a kit to itself' });
+  if (catalogItem.isKit) return res.status(400).json({ error: 'Cannot add a kit inside another kit' });
+
+  const quantity = Math.max(1, parseInt(req.body.quantity, 10) || 1);
+  const condition = req.body.condition || catalogItem.condition || 'Good';
+  const location = req.body.currentLocation !== undefined && req.body.currentLocation !== null
+    ? req.body.currentLocation
+    : (kit.currentLocation || '');
+  const notes = req.body.notes || '';
+  const now = new Date().toISOString();
+
+  const created = [];
+  for (let i = 0; i < quantity; i++) {
+    const piece = {
+      id: uuidv4(),
+      itemId: catalogItem.id,
+      condition,
+      currentLocation: location,
+      notes,
+      addedAt: now,
+    };
+    kit.components.push(piece);
+    created.push(piece);
+  }
+
+  auditLog(data, 'KIT_ADD_COMPONENTS', req.user, kit.id, kit.name, null, { count: quantity, itemId: catalogItem.id });
+  activityLog(
+    data, 'KIT_ADD_COMPONENTS', req.user, kit.id, kit.name,
+    `Added ${quantity}× "${catalogItem.name}" to kit`
+  );
+  writeData(data);
+  res.status(201).json(enrichComponents(data, { ...kit, components: created }));
+});
+
+// ── PUT /api/items/:kitId/components/:componentId ─────────────────────────────
+router.put('/:kitId/components/:componentId', requirePermission('inventory.edit'), (req, res) => {
+  const data = readData();
+  const result = findKit(data, req.params.kitId);
+  if (result.error) return res.status(result.status).json({ error: result.error });
+  const kit = result.kit;
+
+  const idx = kit.components.findIndex((c) => c.id === req.params.componentId);
+  if (idx === -1) return res.status(404).json({ error: 'Kit component not found' });
+
+  const before = { ...kit.components[idx] };
+  if (req.body.condition !== undefined) kit.components[idx].condition = req.body.condition;
+  if (req.body.currentLocation !== undefined) kit.components[idx].currentLocation = req.body.currentLocation;
+  if (req.body.notes !== undefined) kit.components[idx].notes = req.body.notes;
+
+  auditLog(data, 'KIT_UPDATE_COMPONENT', req.user, kit.id, kit.name, before, kit.components[idx]);
+  activityLog(
+    data, 'KIT_UPDATE_COMPONENT', req.user, kit.id, kit.name,
+    `Updated piece in kit (${kit.components[idx].condition})`
+  );
+  writeData(data);
+  res.json(enrichComponents(data, { ...kit, components: [kit.components[idx]] })[0]);
+});
+
+// ── DELETE /api/items/:kitId/components/:componentId ──────────────────────────
+router.delete('/:kitId/components/:componentId', requirePermission('inventory.edit'), (req, res) => {
+  const data = readData();
+  const result = findKit(data, req.params.kitId);
+  if (result.error) return res.status(result.status).json({ error: result.error });
+  const kit = result.kit;
+
+  const idx = kit.components.findIndex((c) => c.id === req.params.componentId);
+  if (idx === -1) return res.status(404).json({ error: 'Kit component not found' });
+
+  const [removed] = kit.components.splice(idx, 1);
+  auditLog(data, 'KIT_REMOVE_COMPONENT', req.user, kit.id, kit.name, removed, null);
+  activityLog(data, 'KIT_REMOVE_COMPONENT', req.user, kit.id, kit.name, 'Removed piece from kit');
+  writeData(data);
+  res.json({ success: true });
+});
+
+// ── POST /api/items/:id/components/bulk-remove ────────────────────────────────
+router.post('/:id/components/bulk-remove', requirePermission('inventory.edit'), (req, res) => {
+  const data = readData();
+  const result = findKit(data, req.params.id);
+  if (result.error) return res.status(result.status).json({ error: result.error });
+  const kit = result.kit;
+
+  const itemId = req.body.itemId;
+  if (!itemId) return res.status(400).json({ error: 'itemId required' });
+  const count = req.body.count != null ? Math.max(0, parseInt(req.body.count, 10) || 0) : null;
+
+  let removed = 0;
+  const next = [];
+  for (const c of kit.components) {
+    if (c.itemId === itemId && (count === null || removed < count)) {
+      removed++;
+      continue;
+    }
+    next.push(c);
+  }
+  kit.components = next;
+
+  activityLog(data, 'KIT_REMOVE_COMPONENT', req.user, kit.id, kit.name, `Removed ${removed} piece(s) of type ${itemId}`);
+  writeData(data);
+  res.json({ success: true, removed });
+});
+
 // ── GET /api/items/:id/units ──────────────────────────────────────────────────
 router.get('/:id/units', (req, res) => {
   const data = readData();
@@ -276,7 +413,7 @@ router.get('/:id/units', (req, res) => {
 });
 
 // ── PUT /api/units/:unitId ────────────────────────────────────────────────────
-router.put('/units/:unitId', requireRole('Admin', 'Manager'), (req, res) => {
+router.put('/units/:unitId', requirePermission('inventory.edit'), (req, res) => {
   const data = readData();
   const unit = (data['rt:units'] || []).find((u) => u.id === req.params.unitId);
   if (!unit) return res.status(404).json({ error: 'Unit not found' });
@@ -299,7 +436,7 @@ router.put('/units/:unitId', requireRole('Admin', 'Manager'), (req, res) => {
 });
 
 // ── POST /api/items/:id/image ─────────────────────────────────────────────────
-router.post('/:id/image', requireRole('Admin', 'Manager'), (req, res) => {
+router.post('/:id/image', requirePermission('inventory.edit'), (req, res) => {
   const data = readData();
   const item = (data['rt:items'] || []).find((i) => i.id === req.params.id);
   if (!item) return res.status(404).json({ error: 'Item not found' });
@@ -332,7 +469,7 @@ router.get('/:id/image', (req, res) => {
 });
 
 // ── POST /api/invoices/:itemId ────────────────────────────────────────────────
-router.post('/invoices/:itemId', requireRole('Admin', 'Manager'), (req, res) => {
+router.post('/invoices/:itemId', requirePermission('inventory.edit'), (req, res) => {
   const data = readData();
   const item = (data['rt:items'] || []).find((i) => i.id === req.params.itemId);
   if (!item) return res.status(404).json({ error: 'Item not found' });
@@ -373,7 +510,7 @@ router.post('/invoices/:itemId', requireRole('Admin', 'Manager'), (req, res) => 
 });
 
 // ── DELETE /api/invoices/:itemId/:invoiceId ───────────────────────────────────
-router.delete('/invoices/:itemId/:invoiceId', requireRole('Admin', 'Manager'), (req, res) => {
+router.delete('/invoices/:itemId/:invoiceId', requirePermission('inventory.edit'), (req, res) => {
   const data = readData();
   const item = (data['rt:items'] || []).find((i) => i.id === req.params.itemId);
   if (!item) return res.status(404).json({ error: 'Item not found' });
@@ -392,7 +529,7 @@ router.delete('/invoices/:itemId/:invoiceId', requireRole('Admin', 'Manager'), (
 });
 
 // ── POST /api/items/:id/comments ──────────────────────────────────────────────
-router.post('/:id/comments', requireRole('Admin', 'Manager', 'Member'), (req, res) => {
+router.post('/:id/comments', requirePermission('inventory.view'), (req, res) => {
   const data = readData();
   const item = (data['rt:items'] || []).find((i) => i.id === req.params.id);
   if (!item) return res.status(404).json({ error: 'Item not found' });

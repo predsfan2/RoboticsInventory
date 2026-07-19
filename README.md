@@ -169,8 +169,14 @@ NODE_ENV=production
 | **Admin** | Full access — users, locations, items, accounting, audit |
 | **Manager** | Approve moves/reimbursements, manage purchases, view accounting |
 | **Accounting Admin** | Access to Finance section only |
-| **Member** | Request moves, borrow items, submit reimbursements, comment |
+| **Member** | Request moves, borrow items, submit reimbursements, create purchase requests, comment |
 | **Viewer** | Read-only access to inventory |
+
+---
+
+## Kits
+
+Mark an inventory item as a **kit**, then open **Details → Contents** to add catalog items as individual pieces. Each piece has its own condition and location (defaulting to the kit’s location). Catalog stock counts are not changed when pieces are added or removed.
 
 ---
 

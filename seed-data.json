@@ -3,7 +3,8 @@
     {
       "id": "u1",
       "name": "Admin",
-      "pin": "01132009",
+      "password": "admin123",
+      "role": "Admin",
       "isAdmin": true
     },
     {
