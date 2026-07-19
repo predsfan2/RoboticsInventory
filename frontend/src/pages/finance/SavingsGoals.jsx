@@ -1,17 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  getGoals, createGoal, updateBudget, addFundsToGoal, deleteTransaction,
-  getTransactions,
+  getGoals, createGoal, updateGoal, deleteGoal, addFundsToGoal, getTransactions,
 } from '../../lib/api';
 import { useAuth, useToast } from '../../App';
+import { hasPermission } from '../../lib/permissions';
 import ConfirmDialog from '../../components/ConfirmDialog';
-import { api } from '../../lib/api';
 
-const deleteGoal = (id) => api.del(`/goals/${id}`);
-
-function GoalFormModal({ onSave, onClose }) {
+function GoalFormModal({ initial, onSave, onClose }) {
   const toast = useToast();
-  const [form, setForm] = useState({ name: '', targetAmount: '', currentAmount: '', deadline: '' });
+  const [form, setForm] = useState({
+    name: initial?.name || '',
+    targetAmount: initial?.targetAmount ?? '',
+    currentAmount: initial?.currentAmount ?? '',
+    deadline: initial?.deadline ? String(initial.deadline).slice(0, 10) : '',
+  });
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -23,6 +25,7 @@ function GoalFormModal({ onSave, onClose }) {
         ...form,
         targetAmount: parseFloat(form.targetAmount) || 0,
         currentAmount: parseFloat(form.currentAmount) || 0,
+        deadline: form.deadline || null,
       });
       onClose();
     } catch (err) {
@@ -36,7 +39,7 @@ function GoalFormModal({ onSave, onClose }) {
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-panel max-w-sm p-6">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold">New Savings Goal</h2>
+          <h2 className="text-lg font-semibold">{initial ? 'Edit Savings Goal' : 'New Savings Goal'}</h2>
           <button onClick={onClose} className="btn-ghost">✕</button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -60,7 +63,7 @@ function GoalFormModal({ onSave, onClose }) {
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
-            <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving…' : 'Create Goal'}</button>
+            <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving…' : (initial ? 'Save' : 'Create Goal')}</button>
           </div>
         </form>
       </div>
@@ -165,10 +168,11 @@ export default function SavingsGoals() {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState(null);
   const [fundsTarget, setFundsTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
-  const canEdit = ['Admin', 'Manager', 'Accounting Admin'].includes(user?.role);
+  const canEdit = hasPermission(user, 'finance.edit');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -233,6 +237,9 @@ export default function SavingsGoals() {
                       <button onClick={() => setFundsTarget(g)} className="btn-primary text-xs py-1 px-3">+ Funds</button>
                     )}
                     {canEdit && (
+                      <button onClick={() => setEditTarget(g)} className="btn-secondary text-xs py-1 px-2">Edit</button>
+                    )}
+                    {canEdit && (
                       <button onClick={() => setDeleteTarget(g)} className="btn-ghost text-xs text-red-500">✕</button>
                     )}
                   </div>
@@ -265,6 +272,13 @@ export default function SavingsGoals() {
         <GoalFormModal
           onSave={async (form) => { await createGoal(form); toast('Goal created', 'success'); load(); }}
           onClose={() => setAddOpen(false)}
+        />
+      )}
+      {editTarget && (
+        <GoalFormModal
+          initial={editTarget}
+          onSave={async (form) => { await updateGoal(editTarget.id, form); toast('Goal updated', 'success'); load(); }}
+          onClose={() => setEditTarget(null)}
         />
       )}
       {fundsTarget && (

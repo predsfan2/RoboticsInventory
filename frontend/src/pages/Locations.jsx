@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getLocations, createLocation, deleteLocation, getItems } from '../lib/api';
+import { getLocations, createLocation, updateLocation, deleteLocation, getItems } from '../lib/api';
 import { useToast } from '../App';
 import ConfirmDialog from '../components/ConfirmDialog';
 
@@ -11,6 +11,9 @@ export default function Locations() {
   const [newName, setNewName] = useState('');
   const [adding, setAdding] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editName, setEditName] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -38,6 +41,28 @@ export default function Locations() {
     }
   };
 
+  const startEdit = (loc) => {
+    setEditingId(loc.id);
+    setEditName(loc.name);
+  };
+
+  const handleRename = async (loc) => {
+    const name = editName.trim();
+    if (!name) return;
+    if (name === loc.name) { setEditingId(null); return; }
+    setSavingEdit(true);
+    try {
+      await updateLocation(loc.id, name);
+      toast('Location renamed', 'success');
+      setEditingId(null);
+      load();
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   const handleDelete = async () => {
     try {
       await deleteLocation(deleteTarget.id);
@@ -55,7 +80,6 @@ export default function Locations() {
     <div className="p-4 md:p-6 max-w-2xl mx-auto">
       <h1 className="text-xl font-bold text-gray-100 mb-4">Locations</h1>
 
-      {/* Add location */}
       <form onSubmit={handleAdd} className="flex gap-2 mb-5">
         <input
           className="input flex-1"
@@ -79,18 +103,40 @@ export default function Locations() {
         <div className="card overflow-hidden">
           {locations.map((loc, idx) => {
             const count = itemCountAt(loc.name);
+            const isEditing = editingId === loc.id;
             return (
               <div key={loc.id} className={`flex items-center gap-3 px-4 py-3 ${idx < locations.length - 1 ? 'border-b border-gray-800' : ''}`}>
                 <span className="text-xl">📍</span>
-                <span className="font-medium text-gray-200 flex-1">{loc.name}</span>
-                <span className="text-xs text-gray-500 bg-gray-800 rounded-full px-2 py-0.5">{count} item{count !== 1 ? 's' : ''}</span>
-                <button
-                  onClick={() => setDeleteTarget(loc)}
-                  className="btn-ghost text-xs py-1 px-2 text-red-500"
-                  title="Delete location"
-                >
-                  ✕
-                </button>
+                {isEditing ? (
+                  <form
+                    className="flex-1 flex gap-2"
+                    onSubmit={(e) => { e.preventDefault(); handleRename(loc); }}
+                  >
+                    <input
+                      className="input flex-1 py-1 text-sm"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      autoFocus
+                    />
+                    <button type="submit" disabled={savingEdit || !editName.trim()} className="btn-primary text-xs py-1 px-2">
+                      {savingEdit ? '…' : 'Save'}
+                    </button>
+                    <button type="button" onClick={() => setEditingId(null)} className="btn-secondary text-xs py-1 px-2">Cancel</button>
+                  </form>
+                ) : (
+                  <>
+                    <span className="font-medium text-gray-200 flex-1">{loc.name}</span>
+                    <span className="text-xs text-gray-500 bg-gray-800 rounded-full px-2 py-0.5">{count} item{count !== 1 ? 's' : ''}</span>
+                    <button onClick={() => startEdit(loc)} className="btn-ghost text-xs py-1 px-2" title="Rename">✏</button>
+                    <button
+                      onClick={() => setDeleteTarget(loc)}
+                      className="btn-ghost text-xs py-1 px-2 text-red-500"
+                      title="Delete location"
+                    >
+                      ✕
+                    </button>
+                  </>
+                )}
               </div>
             );
           })}

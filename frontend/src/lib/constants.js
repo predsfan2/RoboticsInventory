@@ -18,6 +18,7 @@ export const PERMISSIONS = {
   // Finance
   FINANCE_VIEW:      'finance.view',
   FINANCE_EDIT:      'finance.edit',
+  FINANCE_REIMBURSE: 'finance.reimburse',
   // Approvals
   APPROVALS_MANAGE:  'approvals.manage',
   // Audit / Activity
@@ -63,6 +64,7 @@ export const PERMISSION_GROUPS = [
     perms: [
       { key: 'finance.view', label: 'View finance section' },
       { key: 'finance.edit', label: 'Edit transactions & budgets' },
+      { key: 'finance.reimburse', label: 'Submit reimbursements' },
     ],
   },
   {
@@ -90,13 +92,13 @@ export const ROLE_DEFAULT_PERMISSIONS = {
     'moves.request', 'moves.approve',
     'purchases.view', 'purchases.edit',
     'borrows.view', 'borrows.manage',
-    'finance.view', 'finance.edit',
+    'finance.view', 'finance.edit', 'finance.reimburse',
     'approvals.manage', 'audit.view',
   ],
   'Accounting Admin': [
     'inventory.view',
     'purchases.view',
-    'finance.view', 'finance.edit',
+    'finance.view', 'finance.edit', 'finance.reimburse',
     'audit.view',
   ],
   Member: [
@@ -104,6 +106,7 @@ export const ROLE_DEFAULT_PERMISSIONS = {
     'moves.request',
     'purchases.view', 'purchases.edit',
     'borrows.view', 'borrows.manage',
+    'finance.reimburse',
   ],
   Viewer: [
     'inventory.view',

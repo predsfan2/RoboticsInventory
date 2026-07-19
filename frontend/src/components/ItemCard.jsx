@@ -37,6 +37,9 @@ export default function ItemCard({ item, onDetails, onMoveRequest, onDirectMove,
           <span className={`font-medium ${isLowStock ? 'text-amber-400' : 'text-gray-300'}`}>
             ×{item.totalQty} {isLowStock && '⚠'}
           </span>
+          {item.isKit && (
+            <span className="text-purple-400">🧰 {(item.components || []).length} in kit</span>
+          )}
           {item.currentPerson && <span>👤 {item.currentPerson}</span>}
         </div>
       </div>

@@ -16,10 +16,12 @@ import { Pie, Line, Bar } from 'react-chartjs-2';
 import {
   getItems, getMoveRequests, getBorrows,
   getBalance, getTransactions, getBudgets,
+  createReimbursement,
 } from '../lib/api';
 import { useAuth, useToast } from '../App';
 import { hasPermission } from '../lib/permissions';
 import { CONDITION_COLORS } from '../lib/constants';
+import { SubmitModal } from './finance/Reimbursements';
 
 ChartJS.register(
   ArcElement, CategoryScale, LinearScale, PointElement,
@@ -63,6 +65,7 @@ export default function Dashboard() {
   const toast = useToast();
   const canFinance = hasPermission(user, 'finance.view');
   const canInventory = hasPermission(user, 'inventory.view');
+  const canReimburse = hasPermission(user, 'finance.reimburse') && !canFinance;
 
   const [items, setItems] = useState([]);
   const [moveRequests, setMoveRequests] = useState([]);
@@ -70,6 +73,7 @@ export default function Dashboard() {
   const [balance, setBalance] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [budgets, setBudgets] = useState([]);
+  const [reimburseOpen, setReimburseOpen] = useState(false);
 
   useEffect(() => {
     const fetches = [
@@ -176,6 +180,25 @@ export default function Dashboard() {
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
       <h1 className="text-xl font-bold text-gray-100">Dashboard</h1>
+
+      {canReimburse && (
+        <div className="card p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ring-1 ring-emerald-800/40">
+          <div>
+            <p className="text-sm font-semibold text-gray-200">Need a reimbursement?</p>
+            <p className="text-xs text-gray-500">Submit a receipt and amount for manager approval.</p>
+          </div>
+          <button onClick={() => setReimburseOpen(true)} className="btn-primary whitespace-nowrap">+ Submit Reimbursement</button>
+        </div>
+      )}
+      {reimburseOpen && (
+        <SubmitModal
+          onSave={async (form) => {
+            await createReimbursement(form);
+            toast('Reimbursement submitted', 'success');
+          }}
+          onClose={() => setReimburseOpen(false)}
+        />
+      )}
 
       {/* ── Stat cards ──────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

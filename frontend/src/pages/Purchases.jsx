@@ -3,6 +3,7 @@ import { getPurchases, createPurchase, updatePurchase, deletePurchase, setPurcha
 import { useAuth, useToast } from '../App';
 import { CATEGORIES, PRIORITIES, PURCHASE_STATUSES } from '../lib/constants';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { hasPermission } from '../lib/permissions';
 
 const STATUS_STYLES = {
   Needed: 'badge bg-amber-900/60 text-amber-400 border border-amber-800/50',
@@ -107,8 +108,10 @@ export default function Purchases() {
   const [statusLoading, setStatusLoading] = useState({});
   const [filterStatus, setFilterStatus] = useState('');
 
-  const canEdit = ['Admin', 'Manager'].includes(user?.role);
-  const canDelete = user?.role === 'Admin';
+  const canCreate = hasPermission(user, 'purchases.edit');
+  const canManage = hasPermission(user, 'approvals.manage');
+  const canEdit = canCreate;
+  const canDelete = canManage || canCreate;
 
   const load = useCallback(() => {
     setLoading(true);
@@ -166,7 +169,7 @@ export default function Purchases() {
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <h1 className="text-xl font-bold text-gray-100">Purchases</h1>
         <div className="flex gap-2">
-          {canEdit && (
+          {canCreate && (
             <button onClick={() => { setEditTarget(null); setAddOpen(true); }} className="btn-primary">+ Add Request</button>
           )}
         </div>
@@ -213,7 +216,7 @@ export default function Purchases() {
                 {p.notes && <p className="text-xs text-gray-600 mt-0.5 truncate">{p.notes}</p>}
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
-                {canEdit && (
+                {canManage && (
                   <select
                     value={p.status}
                     disabled={statusLoading[p.id]}
@@ -223,10 +226,10 @@ export default function Purchases() {
                     {PURCHASE_STATUSES.map((s) => <option key={s}>{s}</option>)}
                   </select>
                 )}
-                {canEdit && (
+                {(canManage || (canCreate && p.status === 'Needed' && (p.createdBy === user?.id || p.requester === user?.name))) && (
                   <button onClick={() => { setEditTarget(p); setAddOpen(true); }} className="btn-secondary text-xs py-1 px-2">Edit</button>
                 )}
-                {canDelete && (
+                {(canManage || (canCreate && p.status === 'Needed' && (p.createdBy === user?.id || p.requester === user?.name))) && (
                   <button onClick={() => setDeleteTarget(p)} className="btn-ghost text-xs py-1 px-2 text-red-500">✕</button>
                 )}
               </div>

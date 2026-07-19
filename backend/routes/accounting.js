@@ -4,20 +4,13 @@ const express = require('express');
 const router  = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const { readData, writeData } = require('../utils/storage');
-
-function requireRole(...roles) {
-  return (req, res, next) => {
-    if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-    if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
-    next();
-  };
-}
+const { requirePermission, requireRole } = require('../utils/auth');
 
 // ══════════════════════════════════════════════════════════════════════════════
 // RECEIPT FILE UPLOAD
 // POST /api/receipts/upload  — base64 body → saved to uploads/, returns {url}
 // ══════════════════════════════════════════════════════════════════════════════
-router.post('/receipts/upload', requireRole('Admin', 'Manager', 'Member'), (req, res) => {
+router.post('/receipts/upload', requirePermission('finance.edit', 'finance.reimburse'), (req, res) => {
   const { base64, name, mimeType } = req.body;
   if (!base64) return res.status(400).json({ error: 'base64 required' });
 
@@ -63,7 +56,7 @@ router.get('/transactions/balance', (req, res) => {
   res.json({ income, expenses, balance: income - expenses });
 });
 
-router.post('/transactions', requireRole('Admin', 'Manager'), (req, res) => {
+router.post('/transactions', requirePermission('finance.edit'), (req, res) => {
   const data = readData();
   const txn = {
     id: uuidv4(),
@@ -82,7 +75,7 @@ router.post('/transactions', requireRole('Admin', 'Manager'), (req, res) => {
   res.status(201).json(txn);
 });
 
-router.put('/transactions/:id', requireRole('Admin', 'Manager'), (req, res) => {
+router.put('/transactions/:id', requirePermission('finance.edit'), (req, res) => {
   const data = readData();
   const idx = (data['rt:accountingTransactions'] || []).findIndex((t) => t.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Transaction not found' });
@@ -92,7 +85,7 @@ router.put('/transactions/:id', requireRole('Admin', 'Manager'), (req, res) => {
   res.json(data['rt:accountingTransactions'][idx]);
 });
 
-router.delete('/transactions/:id', requireRole('Admin'), (req, res) => {
+router.delete('/transactions/:id', requirePermission('finance.edit'), (req, res) => {
   const data = readData();
   const idx = (data['rt:accountingTransactions'] || []).findIndex((t) => t.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Transaction not found' });
@@ -124,7 +117,7 @@ router.get('/budgets', (req, res) => {
   res.json(result);
 });
 
-router.post('/budgets', requireRole('Admin', 'Manager'), (req, res) => {
+router.post('/budgets', requirePermission('finance.edit'), (req, res) => {
   const data   = readData();
   const budget = {
     id: uuidv4(),
@@ -139,7 +132,7 @@ router.post('/budgets', requireRole('Admin', 'Manager'), (req, res) => {
   res.status(201).json(budget);
 });
 
-router.put('/budgets/:id', requireRole('Admin', 'Manager'), (req, res) => {
+router.put('/budgets/:id', requirePermission('finance.edit'), (req, res) => {
   const data = readData();
   const idx  = (data['rt:budgets'] || []).findIndex((b) => b.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Budget not found' });
@@ -150,7 +143,7 @@ router.put('/budgets/:id', requireRole('Admin', 'Manager'), (req, res) => {
   res.json(data['rt:budgets'][idx]);
 });
 
-router.delete('/budgets/:id', requireRole('Admin'), (req, res) => {
+router.delete('/budgets/:id', requirePermission('finance.edit'), (req, res) => {
   const data = readData();
   const idx  = (data['rt:budgets'] || []).findIndex((b) => b.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Budget not found' });
@@ -168,7 +161,7 @@ router.get('/goals', (req, res) => {
   res.json(data['rt:savingsGoals'] || []);
 });
 
-router.post('/goals', requireRole('Admin', 'Manager'), (req, res) => {
+router.post('/goals', requirePermission('finance.edit'), (req, res) => {
   const data = readData();
   const goal = {
     id: uuidv4(),
@@ -184,7 +177,7 @@ router.post('/goals', requireRole('Admin', 'Manager'), (req, res) => {
   res.status(201).json(goal);
 });
 
-router.put('/goals/:id', requireRole('Admin', 'Manager'), (req, res) => {
+router.put('/goals/:id', requirePermission('finance.edit'), (req, res) => {
   const data = readData();
   const idx  = (data['rt:savingsGoals'] || []).findIndex((g) => g.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Goal not found' });
@@ -195,7 +188,7 @@ router.put('/goals/:id', requireRole('Admin', 'Manager'), (req, res) => {
   res.json(data['rt:savingsGoals'][idx]);
 });
 
-router.delete('/goals/:id', requireRole('Admin'), (req, res) => {
+router.delete('/goals/:id', requirePermission('finance.edit'), (req, res) => {
   const data = readData();
   const idx  = (data['rt:savingsGoals'] || []).findIndex((g) => g.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Goal not found' });
@@ -204,7 +197,7 @@ router.delete('/goals/:id', requireRole('Admin'), (req, res) => {
   res.json({ success: true });
 });
 
-router.post('/goals/:id/add-funds', requireRole('Admin', 'Manager'), (req, res) => {
+router.post('/goals/:id/add-funds', requirePermission('finance.edit'), (req, res) => {
   const data   = readData();
   const goal   = (data['rt:savingsGoals'] || []).find((g) => g.id === req.params.id);
   if (!goal) return res.status(404).json({ error: 'Goal not found' });
@@ -231,11 +224,15 @@ router.get('/reimbursements', (req, res) => {
   const data  = readData();
   let reimbs  = data['rt:reimbursements'] || [];
   if (req.query.status) reimbs = reimbs.filter((r) => r.status === req.query.status);
-  if (req.user && req.user.role === 'Member') reimbs = reimbs.filter((r) => r.userId === req.user.id);
+  // Users without finance.view / approvals only see their own reimbursements
+  const { hasPermission } = require('../utils/auth');
+  if (req.user && !hasPermission(req.user, 'finance.view') && !hasPermission(req.user, 'approvals.manage')) {
+    reimbs = reimbs.filter((r) => r.userId === req.user.id);
+  }
   res.json(reimbs);
 });
 
-router.post('/reimbursements', requireRole('Admin', 'Manager', 'Member'), (req, res) => {
+router.post('/reimbursements', requirePermission('finance.reimburse', 'finance.edit'), (req, res) => {
   const data  = readData();
   const reimb = {
     id: uuidv4(),
@@ -255,7 +252,7 @@ router.post('/reimbursements', requireRole('Admin', 'Manager', 'Member'), (req, 
   res.status(201).json(reimb);
 });
 
-router.post('/reimbursements/:id/approve', requireRole('Admin', 'Manager'), (req, res) => {
+router.post('/reimbursements/:id/approve', requirePermission('approvals.manage', 'finance.edit'), (req, res) => {
   const data  = readData();
   const reimb = (data['rt:reimbursements'] || []).find((r) => r.id === req.params.id);
   if (!reimb) return res.status(404).json({ error: 'Reimbursement not found' });
@@ -274,7 +271,7 @@ router.post('/reimbursements/:id/approve', requireRole('Admin', 'Manager'), (req
   res.json(reimb);
 });
 
-router.post('/reimbursements/:id/deny', requireRole('Admin', 'Manager'), (req, res) => {
+router.post('/reimbursements/:id/deny', requirePermission('approvals.manage', 'finance.edit'), (req, res) => {
   const data  = readData();
   const reimb = (data['rt:reimbursements'] || []).find((r) => r.id === req.params.id);
   if (!reimb) return res.status(404).json({ error: 'Reimbursement not found' });
@@ -286,7 +283,7 @@ router.post('/reimbursements/:id/deny', requireRole('Admin', 'Manager'), (req, r
   res.json(reimb);
 });
 
-router.delete('/reimbursements/:id', requireRole('Admin', 'Manager'), (req, res) => {
+router.delete('/reimbursements/:id', requirePermission('finance.edit'), (req, res) => {
   const data = readData();
   const idx  = (data['rt:reimbursements'] || []).findIndex((r) => r.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Reimbursement not found' });
@@ -304,7 +301,7 @@ router.get('/fundraisers', (req, res) => {
   res.json(data['rt:fundraisers'] || []);
 });
 
-router.post('/fundraisers', requireRole('Admin', 'Manager'), (req, res) => {
+router.post('/fundraisers', requirePermission('finance.edit'), (req, res) => {
   const data       = readData();
   const fundraiser = {
     id: uuidv4(),
@@ -320,7 +317,7 @@ router.post('/fundraisers', requireRole('Admin', 'Manager'), (req, res) => {
   res.status(201).json(fundraiser);
 });
 
-router.put('/fundraisers/:id', requireRole('Admin', 'Manager'), (req, res) => {
+router.put('/fundraisers/:id', requirePermission('finance.edit'), (req, res) => {
   const data = readData();
   const idx  = (data['rt:fundraisers'] || []).findIndex((f) => f.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Fundraiser not found' });
@@ -331,7 +328,7 @@ router.put('/fundraisers/:id', requireRole('Admin', 'Manager'), (req, res) => {
   res.json(data['rt:fundraisers'][idx]);
 });
 
-router.delete('/fundraisers/:id', requireRole('Admin'), (req, res) => {
+router.delete('/fundraisers/:id', requirePermission('finance.edit'), (req, res) => {
   const data = readData();
   const idx  = (data['rt:fundraisers'] || []).findIndex((f) => f.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Fundraiser not found' });
@@ -341,7 +338,7 @@ router.delete('/fundraisers/:id', requireRole('Admin'), (req, res) => {
 });
 
 // POST /api/fundraisers/:id/donations  — add a single donor entry
-router.post('/fundraisers/:id/donations', requireRole('Admin', 'Manager'), (req, res) => {
+router.post('/fundraisers/:id/donations', requirePermission('finance.edit'), (req, res) => {
   const data       = readData();
   const fundraiser = (data['rt:fundraisers'] || []).find((f) => f.id === req.params.id);
   if (!fundraiser) return res.status(404).json({ error: 'Fundraiser not found' });
@@ -371,7 +368,7 @@ router.post('/fundraisers/:id/donations', requireRole('Admin', 'Manager'), (req,
 
 // POST /api/fundraisers/:id/quick-total
 // Records a single lump-sum entry (e.g. end-of-day cash from a stand/booth).
-router.post('/fundraisers/:id/quick-total', requireRole('Admin', 'Manager'), (req, res) => {
+router.post('/fundraisers/:id/quick-total', requirePermission('finance.edit'), (req, res) => {
   const data       = readData();
   const fundraiser = (data['rt:fundraisers'] || []).find((f) => f.id === req.params.id);
   if (!fundraiser) return res.status(404).json({ error: 'Fundraiser not found' });
@@ -405,7 +402,7 @@ router.post('/fundraisers/:id/quick-total', requireRole('Admin', 'Manager'), (re
 // REPORTS
 // ══════════════════════════════════════════════════════════════════════════════
 
-router.get('/reports/balance-sheet', requireRole('Admin', 'Manager'), (req, res) => {
+router.get('/reports/balance-sheet', requirePermission('finance.view'), (req, res) => {
   const data  = readData();
   const txns  = data['rt:accountingTransactions'] || [];
   const INCOME = new Set(['Donation', 'FundraiserIncome']);
@@ -416,7 +413,7 @@ router.get('/reports/balance-sheet', requireRole('Admin', 'Manager'), (req, res)
   res.json({ totalIncome: income, totalExpenses: expenses, netBalance: income - expenses, breakdown: byType, transactions: txns });
 });
 
-router.get('/reports/budget-vs-actual', requireRole('Admin', 'Manager'), (req, res) => {
+router.get('/reports/budget-vs-actual', requirePermission('finance.view'), (req, res) => {
   const data    = readData();
   const budgets = data['rt:budgets'] || [];
   const txns    = data['rt:accountingTransactions'] || [];
@@ -434,7 +431,7 @@ router.get('/reports/budget-vs-actual', requireRole('Admin', 'Manager'), (req, r
   res.json(report);
 });
 
-router.get('/reports/donations', requireRole('Admin', 'Manager'), (req, res) => {
+router.get('/reports/donations', requirePermission('finance.view'), (req, res) => {
   const data        = readData();
   const fundraisers = data['rt:fundraisers'] || [];
   const txns        = (data['rt:accountingTransactions'] || [])

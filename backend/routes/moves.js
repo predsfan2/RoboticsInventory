@@ -2,14 +2,8 @@ const express = require('express');
 const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const { readData, writeData } = require('../utils/storage');
+const { requirePermission, requireRole } = require('../utils/auth');
 
-function requireRole(...roles) {
-  return (req, res, next) => {
-    if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-    if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
-    next();
-  };
-}
 
 function activityLog(data, action, user, itemId, itemName, details) {
   if (!data['rt:activityLog']) data['rt:activityLog'] = [];
@@ -26,7 +20,7 @@ function activityLog(data, action, user, itemId, itemName, details) {
 }
 
 // ── GET /api/move-requests ────────────────────────────────────────────────────
-router.get('/', requireRole('Admin', 'Manager'), (req, res) => {
+router.get('/', requirePermission('moves.approve', 'approvals.manage'), (req, res) => {
   const data = readData();
   let mrs = data['rt:moveRequests'] || [];
   if (req.query.status) mrs = mrs.filter((m) => m.status === req.query.status);
@@ -34,7 +28,7 @@ router.get('/', requireRole('Admin', 'Manager'), (req, res) => {
 });
 
 // ── POST /api/move-requests/:id/approve ──────────────────────────────────────
-router.post('/:id/approve', requireRole('Admin', 'Manager'), (req, res) => {
+router.post('/:id/approve', requirePermission('moves.approve', 'approvals.manage'), (req, res) => {
   const data = readData();
   const mr = (data['rt:moveRequests'] || []).find((m) => m.id === req.params.id);
   if (!mr) return res.status(404).json({ error: 'Move request not found' });
@@ -65,7 +59,7 @@ router.post('/:id/approve', requireRole('Admin', 'Manager'), (req, res) => {
 });
 
 // ── POST /api/move-requests/:id/deny ─────────────────────────────────────────
-router.post('/:id/deny', requireRole('Admin', 'Manager'), (req, res) => {
+router.post('/:id/deny', requirePermission('moves.approve', 'approvals.manage'), (req, res) => {
   const data = readData();
   const mr = (data['rt:moveRequests'] || []).find((m) => m.id === req.params.id);
   if (!mr) return res.status(404).json({ error: 'Move request not found' });

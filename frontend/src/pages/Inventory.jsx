@@ -1,26 +1,33 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { getItems, createItem, updateItem, deleteItem, getLocations } from '../lib/api';
+import { getItems, createItem, updateItem, deleteItem, getLocations, getCustomFields } from '../lib/api';
 import { useAuth, useToast } from '../App';
+import { hasPermission } from '../lib/permissions';
 import { CATEGORIES, CONDITIONS, SORT_OPTIONS, CONDITION_ORDER } from '../lib/constants';
 import ItemCard from '../components/ItemCard';
 import ItemListRow from '../components/ItemListRow';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { normalizeFieldDefs } from '../components/CustomFieldsAdmin';
 import ItemDetailModal from '../modals/ItemDetailModal';
 import MoveRequestModal from '../modals/MoveRequestModal';
 
 const LS_VIEW = 'rt_inv_view';
 const LS_SORT = 'rt_inv_sort';
 
-function ItemFormModal({ initial, locations, onSave, onClose }) {
+function ItemFormModal({ initial, locations, customFieldDefs, onSave, onClose }) {
   const [form, setForm] = useState(initial || {
     name: '', itemNumber: '', category: '', totalQty: 1,
     condition: 'Good', currentLocation: '', currentPerson: '',
-    notes: '', minStock: 0, isKit: false,
+    notes: '', minStock: 0, isKit: false, customFields: {},
   });
   const [saving, setSaving] = useState(false);
   const toast = useToast();
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const categoryFields = normalizeFieldDefs(customFieldDefs, form.category);
+  const setCustom = (key, value) => setForm((f) => ({
+    ...f,
+    customFields: { ...(f.customFields || {}), [key]: value },
+  }));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -88,10 +95,33 @@ function ItemFormModal({ initial, locations, onSave, onClose }) {
               <label className="block text-xs text-gray-400 mb-1">Notes</label>
               <textarea className="input resize-none" rows={2} value={form.notes || ''} onChange={(e) => set('notes', e.target.value)} />
             </div>
-            <div className="col-span-2 flex items-center gap-2">
-              <input type="checkbox" id="isKit" checked={!!form.isKit} onChange={(e) => set('isKit', e.target.checked)} className="rounded" />
-              <label htmlFor="isKit" className="text-sm text-gray-300">This is a kit</label>
+            <div className="col-span-2">
+              <div className="flex items-center gap-2">
+                <input type="checkbox" id="isKit" checked={!!form.isKit} onChange={(e) => set('isKit', e.target.checked)} className="rounded" />
+                <label htmlFor="isKit" className="text-sm text-gray-300">This is a kit</label>
+              </div>
+              {form.isKit && (
+                <p className="text-xs text-gray-500 mt-1.5">
+                  After saving, open the item and use the Contents tab to add pieces. Each piece can have its own condition and location.
+                </p>
+              )}
             </div>
+            {categoryFields.length > 0 && (
+              <div className="col-span-2 border-t border-gray-800 pt-3 space-y-3">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Custom Fields</p>
+                {categoryFields.map((fd) => (
+                  <div key={fd.key}>
+                    <label className="block text-xs text-gray-400 mb-1">{fd.label}</label>
+                    <input
+                      type={fd.type === 'number' ? 'number' : 'text'}
+                      className="input"
+                      value={(form.customFields || {})[fd.key] ?? ''}
+                      onChange={(e) => setCustom(fd.key, e.target.value)}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
@@ -251,6 +281,7 @@ export default function Inventory() {
   const toast = useToast();
   const [items, setItems] = useState([]);
   const [locations, setLocations] = useState([]);
+  const [customFieldDefs, setCustomFieldDefs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState(() => localStorage.getItem(LS_VIEW) || 'grid');
   const [sort, setSort] = useState(() => localStorage.getItem(LS_SORT) || 'name_asc');
@@ -266,14 +297,18 @@ export default function Inventory() {
   const [moveReqItem, setMoveReqItem] = useState(null);
   const [directMoveItem, setDirectMoveItem] = useState(null);
 
-  const canMove = ['Admin', 'Manager'].includes(user?.role);
-  const canEdit = ['Admin', 'Manager'].includes(user?.role);
-  const canDelete = user?.role === 'Admin';
+  const canMove = hasPermission(user, 'inventory.edit') || hasPermission(user, 'moves.approve');
+  const canEdit = hasPermission(user, 'inventory.edit');
+  const canDelete = hasPermission(user, 'inventory.delete');
 
   const load = useCallback(() => {
     setLoading(true);
-    Promise.all([getItems(), getLocations()])
-      .then(([it, locs]) => { setItems(it); setLocations(locs); })
+    Promise.all([getItems(), getLocations(), getCustomFields()])
+      .then(([it, locs, defs]) => {
+        setItems(it);
+        setLocations(locs);
+        setCustomFieldDefs(defs || []);
+      })
       .catch((e) => toast(e.message, 'error'))
       .finally(() => setLoading(false));
   }, []);
@@ -459,6 +494,7 @@ export default function Inventory() {
         <ItemFormModal
           initial={editItem}
           locations={locations}
+          customFieldDefs={customFieldDefs}
           onSave={handleSave}
           onClose={() => { setAddOpen(false); setEditItem(null); }}
         />

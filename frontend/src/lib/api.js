@@ -54,6 +54,16 @@ export const createMoveRequest = (id, body) => api.post(`/items/${id}/move-reque
 export const moveItemDirect = (id, body) => api.post(`/items/${id}/move`, body);
 export const getItemUnits = (id) => api.get(`/items/${id}/units`);
 export const updateUnit = (unitId, body) => api.put(`/items/units/${unitId}`, body);
+
+// Kit contents
+export const getKitComponents = (kitId) => api.get(`/items/${kitId}/components`);
+export const addKitComponents = (kitId, body) => api.post(`/items/${kitId}/components`, body);
+export const updateKitComponent = (kitId, componentId, body) =>
+  api.put(`/items/${kitId}/components/${componentId}`, body);
+export const removeKitComponent = (kitId, componentId) =>
+  api.del(`/items/${kitId}/components/${componentId}`);
+export const bulkRemoveKitComponents = (kitId, body) =>
+  api.post(`/items/${kitId}/components/bulk-remove`, body);
 export const uploadItemImage = (id, base64, mimeType) => api.post(`/items/${id}/image`, { base64, mimeType });
 export const uploadInvoice = (itemId, base64, name, mimeType) =>
   api.post(`/items/invoices/${itemId}`, { base64, name, mimeType });
@@ -75,6 +85,7 @@ export const setPurchaseStatus = (id, status) => api.patch(`/purchases/${id}/sta
 // Borrows
 export const getBorrows = () => api.get('/borrows');
 export const createBorrow = (body) => api.post('/borrows', body);
+export const updateBorrow = (id, body) => api.put(`/borrows/${id}`, body);
 export const returnBorrow = (id) => api.post(`/borrows/${id}/return`);
 export const deleteBorrow = (id) => api.del(`/borrows/${id}`);
 
@@ -92,6 +103,8 @@ export const deleteBudget = (id) => api.del(`/budgets/${id}`);
 
 export const getGoals = () => api.get('/goals');
 export const createGoal = (body) => api.post('/goals', body);
+export const updateGoal = (id, body) => api.put(`/goals/${id}`, body);
+export const deleteGoal = (id) => api.del(`/goals/${id}`);
 export const addFundsToGoal = (id, amount) => api.post(`/goals/${id}/add-funds`, { amount });
 
 export const getReimbursements = () => api.get('/reimbursements');
@@ -104,6 +117,8 @@ export const uploadReceipt = (base64, name, mimeType) =>
 
 export const getFundraisers = () => api.get('/fundraisers');
 export const createFundraiser = (body) => api.post('/fundraisers', body);
+export const updateFundraiser = (id, body) => api.put(`/fundraisers/${id}`, body);
+export const deleteFundraiser = (id) => api.del(`/fundraisers/${id}`);
 export const addDonation = (id, body) => api.post(`/fundraisers/${id}/donations`, body);
 export const addQuickTotal = (id, body) => api.post(`/fundraisers/${id}/quick-total`, body);
 

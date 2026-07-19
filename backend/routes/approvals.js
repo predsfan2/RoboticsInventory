@@ -1,17 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const { readData } = require('../utils/storage');
+const { requirePermission, requireRole } = require('../utils/auth');
 
-function requireRole(...roles) {
-  return (req, res, next) => {
-    if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-    if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
-    next();
-  };
-}
 
 // GET /api/approvals/pending – returns pending move requests + pending reimbursements
-router.get('/pending', requireRole('Admin', 'Manager'), (req, res) => {
+router.get('/pending', requirePermission('approvals.manage'), (req, res) => {
   const data = readData();
 
   const moveRequests = (data['rt:moveRequests'] || [])

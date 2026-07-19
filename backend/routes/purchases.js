@@ -2,14 +2,8 @@ const express = require('express');
 const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const { readData, writeData } = require('../utils/storage');
+const { requirePermission, hasPermission } = require('../utils/auth');
 
-function requireRole(...roles) {
-  return (req, res, next) => {
-    if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-    if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
-    next();
-  };
-}
 
 function activityLog(data, action, user, itemId, itemName, details) {
   if (!data['rt:activityLog']) data['rt:activityLog'] = [];
@@ -34,7 +28,7 @@ router.get('/', (req, res) => {
 });
 
 // ── POST /api/purchases ───────────────────────────────────────────────────────
-router.post('/', requireRole('Admin', 'Manager', 'Member'), (req, res) => {
+router.post('/', requirePermission('purchases.edit'), (req, res) => {
   const data = readData();
   const purchase = {
     id: uuidv4(),
@@ -66,12 +60,26 @@ router.get('/:id', (req, res) => {
 });
 
 // ── PUT /api/purchases/:id ────────────────────────────────────────────────────
-router.put('/:id', requireRole('Admin', 'Manager'), (req, res) => {
+router.put('/:id', requirePermission('purchases.edit'), (req, res) => {
   const data = readData();
   const idx = (data['rt:purchases'] || []).findIndex((x) => x.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Purchase not found' });
 
-  const allowed = ['name', 'quantity', 'category', 'priority', 'link', 'status', 'notes', 'requester', 'date'];
+  const purchase = data['rt:purchases'][idx];
+  const canManage = hasPermission(req.user, 'approvals.manage');
+  if (!canManage) {
+    // Members may only edit their own Needed requests
+    if (purchase.createdBy !== req.user.id && purchase.requester !== req.user.name) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    if (purchase.status !== 'Needed') {
+      return res.status(403).json({ error: 'Only Needed requests can be edited' });
+    }
+  }
+
+  const allowed = canManage
+    ? ['name', 'quantity', 'category', 'priority', 'link', 'status', 'notes', 'requester', 'date']
+    : ['name', 'quantity', 'category', 'priority', 'link', 'notes', 'requester', 'date'];
   for (const key of allowed) {
     if (req.body[key] !== undefined) data['rt:purchases'][idx][key] = req.body[key];
   }
@@ -80,17 +88,29 @@ router.put('/:id', requireRole('Admin', 'Manager'), (req, res) => {
 });
 
 // ── DELETE /api/purchases/:id ─────────────────────────────────────────────────
-router.delete('/:id', requireRole('Admin', 'Manager'), (req, res) => {
+router.delete('/:id', requirePermission('purchases.edit'), (req, res) => {
   const data = readData();
   const idx = (data['rt:purchases'] || []).findIndex((x) => x.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Purchase not found' });
+
+  const purchase = data['rt:purchases'][idx];
+  const canManage = hasPermission(req.user, 'approvals.manage');
+  if (!canManage) {
+    if (purchase.createdBy !== req.user.id && purchase.requester !== req.user.name) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    if (purchase.status !== 'Needed') {
+      return res.status(403).json({ error: 'Only Needed requests can be deleted' });
+    }
+  }
+
   data['rt:purchases'].splice(idx, 1);
   writeData(data);
   res.json({ success: true });
 });
 
 // ── PATCH /api/purchases/:id/status ──────────────────────────────────────────
-router.patch('/:id/status', requireRole('Admin', 'Manager'), (req, res) => {
+router.patch('/:id/status', requirePermission('approvals.manage'), (req, res) => {
   const data = readData();
   const purchase = (data['rt:purchases'] || []).find((x) => x.id === req.params.id);
   if (!purchase) return res.status(404).json({ error: 'Purchase not found' });

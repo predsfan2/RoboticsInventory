@@ -1,17 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getFundraisers, createFundraiser, addDonation, addQuickTotal } from '../../lib/api';
+import {
+  getFundraisers, createFundraiser, updateFundraiser, deleteFundraiser,
+  addDonation, addQuickTotal,
+} from '../../lib/api';
 import { useAuth, useToast } from '../../App';
-import { api } from '../../lib/api';
+import { hasPermission } from '../../lib/permissions';
 import ConfirmDialog from '../../components/ConfirmDialog';
 
-const deleteFundraiser = (id) => api.del('/fundraisers/' + id);
-
-// ── New Fundraiser modal ──────────────────────────────────────────────────────
-function FundraiserFormModal({ onSave, onClose }) {
+// ── New / Edit Fundraiser modal ───────────────────────────────────────────────
+function FundraiserFormModal({ initial, onSave, onClose }) {
   const toast = useToast();
   const [form, setForm] = useState({
-    name: '', date: new Date().toISOString().slice(0, 10),
-    targetAmount: '', actualAmount: '',
+    name: initial?.name || '',
+    date: initial?.date ? String(initial.date).slice(0, 10) : new Date().toISOString().slice(0, 10),
+    targetAmount: initial?.targetAmount ?? '',
+    actualAmount: initial?.actualAmount ?? '',
   });
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -20,7 +23,11 @@ function FundraiserFormModal({ onSave, onClose }) {
     e.preventDefault();
     setSaving(true);
     try {
-      await onSave({ ...form, targetAmount: parseFloat(form.targetAmount) || 0, actualAmount: parseFloat(form.actualAmount) || 0 });
+      await onSave({
+        ...form,
+        targetAmount: parseFloat(form.targetAmount) || 0,
+        actualAmount: parseFloat(form.actualAmount) || 0,
+      });
       onClose();
     } catch (err) { toast(err.message, 'error'); }
     finally { setSaving(false); }
@@ -30,7 +37,7 @@ function FundraiserFormModal({ onSave, onClose }) {
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-panel max-w-sm p-6">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold">New Fundraiser</h2>
+          <h2 className="text-lg font-semibold">{initial ? 'Edit Fundraiser' : 'New Fundraiser'}</h2>
           <button onClick={onClose} className="btn-ghost">✕</button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -48,13 +55,13 @@ function FundraiserFormModal({ onSave, onClose }) {
               <input type="number" step="0.01" min="0" className="input" value={form.targetAmount} onChange={(e) => set('targetAmount', e.target.value)} placeholder="0.00" />
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Starting Amount ($)</label>
+              <label className="block text-xs text-gray-400 mb-1">{initial ? 'Actual ($)' : 'Starting Amount ($)'}</label>
               <input type="number" step="0.01" min="0" className="input" value={form.actualAmount} onChange={(e) => set('actualAmount', e.target.value)} placeholder="0.00" />
             </div>
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
-            <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving…' : 'Create'}</button>
+            <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving…' : (initial ? 'Save' : 'Create')}</button>
           </div>
         </form>
       </div>
@@ -197,12 +204,13 @@ export default function Fundraisers() {
   const [fundraisers, setFundraisers] = useState([]);
   const [loading, setLoading]         = useState(true);
   const [addOpen, setAddOpen]         = useState(false);
+  const [editTarget, setEditTarget]   = useState(null);
   const [donationTarget, setDonationTarget]     = useState(null);
   const [quickTotalTarget, setQuickTotalTarget] = useState(null);
   const [deleteTarget, setDeleteTarget]         = useState(null);
   const [expanded, setExpanded]                 = useState({});
 
-  const canEdit = ['Admin', 'Manager', 'Accounting Admin'].includes(user?.role);
+  const canEdit = hasPermission(user, 'finance.edit');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -263,6 +271,7 @@ export default function Fundraisers() {
                         >
                           + Donation
                         </button>
+                        <button onClick={() => setEditTarget(f)} className="btn-ghost text-xs py-1 px-2" title="Edit">✏</button>
                         <button onClick={() => setDeleteTarget(f)} className="btn-ghost text-xs text-red-500">✕</button>
                       </div>
                     )}
@@ -325,6 +334,13 @@ export default function Fundraisers() {
         <FundraiserFormModal
           onSave={async (form) => { await createFundraiser(form); toast('Fundraiser created', 'success'); load(); }}
           onClose={() => setAddOpen(false)}
+        />
+      )}
+      {editTarget && (
+        <FundraiserFormModal
+          initial={editTarget}
+          onSave={async (form) => { await updateFundraiser(editTarget.id, form); toast('Fundraiser updated', 'success'); load(); }}
+          onClose={() => setEditTarget(null)}
         />
       )}
       {quickTotalTarget && (

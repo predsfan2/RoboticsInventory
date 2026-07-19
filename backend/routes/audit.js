@@ -1,18 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const { readData, writeData } = require('../utils/storage');
+const { requirePermission, requireRole } = require('../utils/auth');
 
-function requireRole(...roles) {
-  return (req, res, next) => {
-    if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-    if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
-    next();
-  };
-}
 
 // ── GET /api/audit ────────────────────────────────────────────────────────────
 // Query params: page, limit, action, userId, itemId, search
-router.get('/', requireRole('Admin', 'Manager'), (req, res) => {
+router.get('/', requirePermission('audit.view'), (req, res) => {
   const data = readData();
   let logs = [...(data['rt:auditLog'] || [])].reverse(); // newest first
 
@@ -43,7 +37,7 @@ router.get('/', requireRole('Admin', 'Manager'), (req, res) => {
 // ── POST /api/audit/undo ──────────────────────────────────────────────────────
 // Reverts the most recent auditable action (requires Admin).
 // Stores before/after snapshots; only supports item-level undo.
-router.post('/undo', requireRole('Admin'), (req, res) => {
+router.post('/undo', requirePermission('admin.users'), (req, res) => {
   const data = readData();
   const logs = data['rt:auditLog'] || [];
 
