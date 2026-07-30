@@ -18,7 +18,7 @@ import {
   getBalance, getTransactions, getBudgets,
 } from '../lib/api';
 import { useAuth, useToast } from '../App';
-import { hasPermission } from '../lib/permissions';
+import { hasPermission, canViewFinanceOverview } from '../lib/permissions';
 import { CONDITION_COLORS } from '../lib/constants';
 
 ChartJS.register(
@@ -61,7 +61,7 @@ const INCOME_TYPES = new Set(['Donation', 'FundraiserIncome']);
 export default function Dashboard() {
   const { user } = useAuth();
   const toast = useToast();
-  const canFinance = hasPermission(user, 'finance.view');
+  const canFinance = canViewFinanceOverview(user);
   const canInventory = hasPermission(user, 'inventory.view');
 
   const [items, setItems] = useState([]);

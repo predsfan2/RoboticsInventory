@@ -7,7 +7,7 @@
  * If a user has no permissions array, falls back to role defaults.
  */
 
-import { ROLE_DEFAULT_PERMISSIONS } from './constants';
+import { ROLE_DEFAULT_PERMISSIONS, FINANCE_PERMISSIONS, FINANCE_VIEW_PERMISSIONS } from './constants';
 
 /**
  * Returns true if the user holds the given permission.
@@ -23,6 +23,27 @@ export function hasPermission(user, permission) {
     : (ROLE_DEFAULT_PERMISSIONS[user.role] || []);
 
   return perms.includes(permission);
+}
+
+/**
+ * Returns true if the user holds any of the given permissions.
+ * Admins always return true.
+ */
+export function hasAnyPermission(user, permissions) {
+  if (!user) return false;
+  if (user.role === 'Admin') return true;
+  if (!Array.isArray(permissions) || permissions.length === 0) return false;
+  return permissions.some((p) => hasPermission(user, p));
+}
+
+/** True if user can access the Finance section at all. */
+export function canAccessFinance(user) {
+  return hasAnyPermission(user, FINANCE_PERMISSIONS);
+}
+
+/** True if user can see the Dashboard finance overview (any finance view key). */
+export function canViewFinanceOverview(user) {
+  return hasAnyPermission(user, FINANCE_VIEW_PERMISSIONS);
 }
 
 /**

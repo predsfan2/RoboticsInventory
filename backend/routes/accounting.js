@@ -12,7 +12,7 @@ function asyncHandler(fn) {
   return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 }
 
-router.post('/receipts/upload', requirePermission('finance.edit', 'finance.view'), asyncHandler(async (req, res) => {
+router.post('/receipts/upload', requirePermission('finance.transactions.edit', 'finance.reimbursements.request'), asyncHandler(async (req, res) => {
   try {
     const saved = saveBase64Upload({
       base64: req.body.base64,
@@ -27,7 +27,7 @@ router.post('/receipts/upload', requirePermission('finance.edit', 'finance.view'
   }
 }));
 
-router.get('/transactions', requirePermission('finance.view'), (req, res) => {
+router.get('/transactions', requirePermission('finance.transactions.view'), (req, res) => {
   const data = readData();
   let txns = data['rt:accountingTransactions'] || [];
   if (req.query.type) txns = txns.filter((t) => t.type === req.query.type);
@@ -35,7 +35,7 @@ router.get('/transactions', requirePermission('finance.view'), (req, res) => {
   res.json(txns);
 });
 
-router.get('/transactions/balance', requirePermission('finance.view'), (req, res) => {
+router.get('/transactions/balance', requirePermission('finance.transactions.view'), (req, res) => {
   const data = readData();
   const txns = data['rt:accountingTransactions'] || [];
   const INCOME = new Set(['Donation', 'FundraiserIncome']);
@@ -44,7 +44,7 @@ router.get('/transactions/balance', requirePermission('finance.view'), (req, res
   res.json({ income, expenses, balance: income - expenses });
 });
 
-router.post('/transactions', requirePermission('finance.edit'), asyncHandler(async (req, res) => {
+router.post('/transactions', requirePermission('finance.transactions.edit'), asyncHandler(async (req, res) => {
   const data = readData();
   const txn = {
     id: uuidv4(),
@@ -108,7 +108,7 @@ function findFundraiserByName(fundraisers, name) {
   return (fundraisers || []).find((f) => String(f.name || '').trim().toLowerCase() === needle) || null;
 }
 
-router.post('/transactions/import', requirePermission('finance.edit'), asyncHandler(async (req, res) => {
+router.post('/transactions/import', requirePermission('finance.transactions.edit'), asyncHandler(async (req, res) => {
   const rows = Array.isArray(req.body.transactions) ? req.body.transactions : null;
   if (!rows) {
     return res.status(400).json({ error: 'transactions array is required' });
@@ -217,7 +217,7 @@ router.post('/transactions/import', requirePermission('finance.edit'), asyncHand
   });
 }));
 
-router.put('/transactions/:id', requirePermission('finance.edit'), asyncHandler(async (req, res) => {
+router.put('/transactions/:id', requirePermission('finance.transactions.edit'), asyncHandler(async (req, res) => {
   const data = readData();
   const idx = (data['rt:accountingTransactions'] || []).findIndex((t) => t.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Transaction not found' });
@@ -229,7 +229,7 @@ router.put('/transactions/:id', requirePermission('finance.edit'), asyncHandler(
   res.json(data['rt:accountingTransactions'][idx]);
 }));
 
-router.delete('/transactions/:id', requirePermission('finance.edit'), asyncHandler(async (req, res) => {
+router.delete('/transactions/:id', requirePermission('finance.transactions.edit'), asyncHandler(async (req, res) => {
   const data = readData();
   const idx = (data['rt:accountingTransactions'] || []).findIndex((t) => t.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Transaction not found' });
@@ -238,7 +238,7 @@ router.delete('/transactions/:id', requirePermission('finance.edit'), asyncHandl
   res.json({ success: true });
 }));
 
-router.get('/budgets', requirePermission('finance.view'), (req, res) => {
+router.get('/budgets', requirePermission('finance.budget.view'), (req, res) => {
   const data = readData();
   const budgets = data['rt:budgets'] || [];
   const txns = data['rt:accountingTransactions'] || [];
@@ -257,7 +257,7 @@ router.get('/budgets', requirePermission('finance.view'), (req, res) => {
   res.json(result);
 });
 
-router.post('/budgets', requirePermission('finance.edit'), asyncHandler(async (req, res) => {
+router.post('/budgets', requirePermission('finance.budget.edit'), asyncHandler(async (req, res) => {
   const data = readData();
   const budget = {
     id: uuidv4(),
@@ -272,7 +272,7 @@ router.post('/budgets', requirePermission('finance.edit'), asyncHandler(async (r
   res.status(201).json(budget);
 }));
 
-router.put('/budgets/:id', requirePermission('finance.edit'), asyncHandler(async (req, res) => {
+router.put('/budgets/:id', requirePermission('finance.budget.edit'), asyncHandler(async (req, res) => {
   const data = readData();
   const idx = (data['rt:budgets'] || []).findIndex((b) => b.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Budget not found' });
@@ -283,7 +283,7 @@ router.put('/budgets/:id', requirePermission('finance.edit'), asyncHandler(async
   res.json(data['rt:budgets'][idx]);
 }));
 
-router.delete('/budgets/:id', requirePermission('finance.edit'), asyncHandler(async (req, res) => {
+router.delete('/budgets/:id', requirePermission('finance.budget.edit'), asyncHandler(async (req, res) => {
   const data = readData();
   const idx = (data['rt:budgets'] || []).findIndex((b) => b.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Budget not found' });
@@ -292,12 +292,12 @@ router.delete('/budgets/:id', requirePermission('finance.edit'), asyncHandler(as
   res.json({ success: true });
 }));
 
-router.get('/goals', requirePermission('finance.view'), (req, res) => {
+router.get('/goals', requirePermission('finance.goals.view'), (req, res) => {
   const data = readData();
   res.json(data['rt:savingsGoals'] || []);
 });
 
-router.post('/goals', requirePermission('finance.edit'), asyncHandler(async (req, res) => {
+router.post('/goals', requirePermission('finance.goals.edit'), asyncHandler(async (req, res) => {
   const data = readData();
   const goal = {
     id: uuidv4(),
@@ -313,7 +313,7 @@ router.post('/goals', requirePermission('finance.edit'), asyncHandler(async (req
   res.status(201).json(goal);
 }));
 
-router.put('/goals/:id', requirePermission('finance.edit'), asyncHandler(async (req, res) => {
+router.put('/goals/:id', requirePermission('finance.goals.edit'), asyncHandler(async (req, res) => {
   const data = readData();
   const idx = (data['rt:savingsGoals'] || []).findIndex((g) => g.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Goal not found' });
@@ -324,7 +324,7 @@ router.put('/goals/:id', requirePermission('finance.edit'), asyncHandler(async (
   res.json(data['rt:savingsGoals'][idx]);
 }));
 
-router.delete('/goals/:id', requirePermission('finance.edit'), asyncHandler(async (req, res) => {
+router.delete('/goals/:id', requirePermission('finance.goals.edit'), asyncHandler(async (req, res) => {
   const data = readData();
   const idx = (data['rt:savingsGoals'] || []).findIndex((g) => g.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Goal not found' });
@@ -333,7 +333,7 @@ router.delete('/goals/:id', requirePermission('finance.edit'), asyncHandler(asyn
   res.json({ success: true });
 }));
 
-router.post('/goals/:id/add-funds', requirePermission('finance.edit'), asyncHandler(async (req, res) => {
+router.post('/goals/:id/add-funds', requirePermission('finance.goals.edit'), asyncHandler(async (req, res) => {
   const data = readData();
   const goal = (data['rt:savingsGoals'] || []).find((g) => g.id === req.params.id);
   if (!goal) return res.status(404).json({ error: 'Goal not found' });
@@ -357,7 +357,7 @@ router.post('/goals/:id/add-funds', requirePermission('finance.edit'), asyncHand
 }));
 
 /** Link an existing income transaction to a goal without creating a new txn. */
-router.post('/goals/:id/link-transaction', requirePermission('finance.edit'), asyncHandler(async (req, res) => {
+router.post('/goals/:id/link-transaction', requirePermission('finance.goals.edit'), asyncHandler(async (req, res) => {
   const data = readData();
   const goal = (data['rt:savingsGoals'] || []).find((g) => g.id === req.params.id);
   if (!goal) return res.status(404).json({ error: 'Goal not found' });
@@ -378,18 +378,18 @@ router.post('/goals/:id/link-transaction', requirePermission('finance.edit'), as
   res.json({ goal, transaction: txn });
 }));
 
-router.get('/reimbursements', requirePermission('finance.view'), (req, res) => {
+router.get('/reimbursements', requirePermission('finance.reimbursements.view', 'finance.reimbursements.request', 'finance.reimbursements.approve'), (req, res) => {
   const data = readData();
   let reimbs = data['rt:reimbursements'] || [];
   if (req.query.status) reimbs = reimbs.filter((r) => r.status === req.query.status);
-  // Members without finance.edit only see their own
-  if (req.user && !hasPermission(req.user, 'finance.edit')) {
+  // Without approve, users only see their own
+  if (req.user && !hasPermission(req.user, 'finance.reimbursements.approve') && !hasPermission(req.user, 'approvals.manage')) {
     reimbs = reimbs.filter((r) => r.userId === req.user.id);
   }
   res.json(reimbs);
 });
 
-router.post('/reimbursements', requirePermission('finance.view'), asyncHandler(async (req, res) => {
+router.post('/reimbursements', requirePermission('finance.reimbursements.request'), asyncHandler(async (req, res) => {
   const data = readData();
   const reimb = {
     id: uuidv4(),
@@ -411,7 +411,7 @@ router.post('/reimbursements', requirePermission('finance.view'), asyncHandler(a
   res.status(201).json(reimb);
 }));
 
-router.post('/reimbursements/:id/approve', requirePermission('finance.edit', 'approvals.manage'), asyncHandler(async (req, res) => {
+router.post('/reimbursements/:id/approve', requirePermission('finance.reimbursements.approve', 'approvals.manage'), asyncHandler(async (req, res) => {
   const data = readData();
   const reimb = (data['rt:reimbursements'] || []).find((r) => r.id === req.params.id);
   if (!reimb) return res.status(404).json({ error: 'Reimbursement not found' });
@@ -433,7 +433,7 @@ router.post('/reimbursements/:id/approve', requirePermission('finance.edit', 'ap
   res.json(reimb);
 }));
 
-router.post('/reimbursements/:id/deny', requirePermission('finance.edit', 'approvals.manage'), asyncHandler(async (req, res) => {
+router.post('/reimbursements/:id/deny', requirePermission('finance.reimbursements.approve', 'approvals.manage'), asyncHandler(async (req, res) => {
   const data = readData();
   const reimb = (data['rt:reimbursements'] || []).find((r) => r.id === req.params.id);
   if (!reimb) return res.status(404).json({ error: 'Reimbursement not found' });
@@ -445,7 +445,7 @@ router.post('/reimbursements/:id/deny', requirePermission('finance.edit', 'appro
   res.json(reimb);
 }));
 
-router.delete('/reimbursements/:id', requirePermission('finance.edit'), asyncHandler(async (req, res) => {
+router.delete('/reimbursements/:id', requirePermission('finance.reimbursements.approve'), asyncHandler(async (req, res) => {
   const data = readData();
   const idx = (data['rt:reimbursements'] || []).findIndex((r) => r.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Reimbursement not found' });
@@ -454,12 +454,12 @@ router.delete('/reimbursements/:id', requirePermission('finance.edit'), asyncHan
   res.json({ success: true });
 }));
 
-router.get('/fundraisers', requirePermission('finance.view'), (req, res) => {
+router.get('/fundraisers', requirePermission('finance.fundraisers.view'), (req, res) => {
   const data = readData();
   res.json(data['rt:fundraisers'] || []);
 });
 
-router.post('/fundraisers', requirePermission('finance.edit'), asyncHandler(async (req, res) => {
+router.post('/fundraisers', requirePermission('finance.fundraisers.edit'), asyncHandler(async (req, res) => {
   const data = readData();
   const fundraiser = {
     id: uuidv4(),
@@ -475,7 +475,7 @@ router.post('/fundraisers', requirePermission('finance.edit'), asyncHandler(asyn
   res.status(201).json(fundraiser);
 }));
 
-router.put('/fundraisers/:id', requirePermission('finance.edit'), asyncHandler(async (req, res) => {
+router.put('/fundraisers/:id', requirePermission('finance.fundraisers.edit'), asyncHandler(async (req, res) => {
   const data = readData();
   const idx = (data['rt:fundraisers'] || []).findIndex((f) => f.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Fundraiser not found' });
@@ -486,7 +486,7 @@ router.put('/fundraisers/:id', requirePermission('finance.edit'), asyncHandler(a
   res.json(data['rt:fundraisers'][idx]);
 }));
 
-router.delete('/fundraisers/:id', requirePermission('finance.edit'), asyncHandler(async (req, res) => {
+router.delete('/fundraisers/:id', requirePermission('finance.fundraisers.edit'), asyncHandler(async (req, res) => {
   const data = readData();
   const idx = (data['rt:fundraisers'] || []).findIndex((f) => f.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Fundraiser not found' });
@@ -495,7 +495,7 @@ router.delete('/fundraisers/:id', requirePermission('finance.edit'), asyncHandle
   res.json({ success: true });
 }));
 
-router.post('/fundraisers/:id/donations', requirePermission('finance.edit'), asyncHandler(async (req, res) => {
+router.post('/fundraisers/:id/donations', requirePermission('finance.fundraisers.edit'), asyncHandler(async (req, res) => {
   const data = readData();
   const fundraiser = (data['rt:fundraisers'] || []).find((f) => f.id === req.params.id);
   if (!fundraiser) return res.status(404).json({ error: 'Fundraiser not found' });
@@ -526,7 +526,7 @@ router.post('/fundraisers/:id/donations', requirePermission('finance.edit'), asy
   res.status(201).json(donation);
 }));
 
-router.post('/fundraisers/:id/quick-total', requirePermission('finance.edit'), asyncHandler(async (req, res) => {
+router.post('/fundraisers/:id/quick-total', requirePermission('finance.fundraisers.edit'), asyncHandler(async (req, res) => {
   const data = readData();
   const fundraiser = (data['rt:fundraisers'] || []).find((f) => f.id === req.params.id);
   if (!fundraiser) return res.status(404).json({ error: 'Fundraiser not found' });
@@ -563,7 +563,7 @@ router.post('/fundraisers/:id/quick-total', requirePermission('finance.edit'), a
   res.status(201).json(entry);
 }));
 
-router.get('/reports/balance-sheet', requirePermission('finance.view'), (req, res) => {
+router.get('/reports/balance-sheet', requirePermission('finance.reports.view'), (req, res) => {
   const data = readData();
   const txns = data['rt:accountingTransactions'] || [];
   const byType = {};
@@ -579,7 +579,7 @@ router.get('/reports/balance-sheet', requirePermission('finance.view'), (req, re
   });
 });
 
-router.get('/reports/budget-vs-actual', requirePermission('finance.view'), (req, res) => {
+router.get('/reports/budget-vs-actual', requirePermission('finance.reports.view'), (req, res) => {
   const data = readData();
   const budgets = data['rt:budgets'] || [];
   const txns = data['rt:accountingTransactions'] || [];
@@ -597,7 +597,7 @@ router.get('/reports/budget-vs-actual', requirePermission('finance.view'), (req,
   res.json(report);
 });
 
-router.get('/reports/donations', requirePermission('finance.view'), (req, res) => {
+router.get('/reports/donations', requirePermission('finance.reports.view'), (req, res) => {
   const data = readData();
   const fundraisers = data['rt:fundraisers'] || [];
   const txns = (data['rt:accountingTransactions'] || [])

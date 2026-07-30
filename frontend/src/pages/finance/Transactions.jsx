@@ -11,6 +11,12 @@ import {
 } from '../../lib/csv';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import ReceiptField from '../../components/ReceiptField';
+import {
+  formatMoney, MoneyStat, FinancePageHeader, FinanceEmpty, RowActions,
+} from '../../components/finance';
+
+const PAGE_SIZE = 25;
+const TX_GRID = 'md:grid md:grid-cols-[6.5rem_minmax(0,1fr)_6.5rem_6.5rem_5.5rem_2.5rem] md:gap-x-3 md:items-center';
 
 const TYPE_STYLES = {
   Purchase:         'bg-red-900/50 text-red-400 border-red-800/50',
@@ -273,6 +279,17 @@ function ImportCSVModal({ fundraisers, onImported, onClose }) {
   );
 }
 
+function dateKey(d) {
+  const dt = new Date(d);
+  return `${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}`;
+}
+
+function formatDateLabel(d) {
+  return new Date(d).toLocaleDateString(undefined, {
+    weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+  });
+}
+
 export default function Transactions() {
   const { user } = useAuth();
   const toast    = useToast();
@@ -283,12 +300,13 @@ export default function Transactions() {
   const [loading, setLoading]     = useState(true);
   const [filterType, setFilterType] = useState('');
   const [search, setSearch]         = useState('');
+  const [page, setPage]             = useState(0);
   const [editTarget, setEditTarget] = useState(null);
   const [addOpen, setAddOpen]       = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
-  const canEdit = hasPermission(user, 'finance.edit');
+  const canEdit = hasPermission(user, 'finance.transactions.edit');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -299,6 +317,8 @@ export default function Transactions() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => { setPage(0); }, [filterType, search]);
 
   const handleSave = async (form) => {
     if (editTarget) { await updateTransaction(editTarget.id, form); toast('Updated', 'success'); }
@@ -321,7 +341,6 @@ export default function Transactions() {
     return list;
   }, [txns, filterType, search]);
 
-  // Running balance (oldest → newest, then reversed for display)
   const withRunning = useMemo(() => {
     const rev = [...filtered].reverse();
     let running = 0;
@@ -332,82 +351,188 @@ export default function Transactions() {
     return calc.reverse();
   }, [filtered]);
 
+  const pageCount = Math.max(1, Math.ceil(withRunning.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageRows = withRunning.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+
+  const grouped = useMemo(() => {
+    const groups = [];
+    let current = null;
+    pageRows.forEach((t) => {
+      const key = dateKey(t.date);
+      if (!current || current.key !== key) {
+        current = { key, date: t.date, rows: [] };
+        groups.push(current);
+      }
+      current.rows.push(t);
+    });
+    return groups;
+  }, [pageRows]);
+
   return (
-    <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-4">
-      {/* Balance summary */}
+    <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-5">
+      <FinancePageHeader title="Transactions">
+        {canEdit && (
+          <>
+            <button type="button" onClick={() => setImportOpen(true)} className="btn-secondary">Import CSV</button>
+            <button type="button" onClick={() => { setEditTarget(null); setAddOpen(true); }} className="btn-primary">+ Add</button>
+          </>
+        )}
+      </FinancePageHeader>
+
       {balance && (
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label: 'Total Income',   value: balance.income,   color: 'text-emerald-400' },
-            { label: 'Total Expenses', value: balance.expenses, color: 'text-red-400' },
-            { label: 'Net Balance',    value: balance.balance,  color: balance.balance >= 0 ? 'text-indigo-300' : 'text-red-300' },
-          ].map(({ label, value, color }) => (
-            <div key={label} className="card p-3 text-center">
-              <p className="text-xs text-gray-500 mb-1">{label}</p>
-              <p className={`text-xl font-bold ${color}`}>${value.toFixed(2)}</p>
-            </div>
-          ))}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <MoneyStat label="Total Income" value={balance.income} color="text-emerald-400" />
+          <MoneyStat label="Total Expenses" value={balance.expenses} color="text-red-400" />
+          <MoneyStat
+            label="Net Balance"
+            value={balance.balance}
+            color={balance.balance >= 0 ? 'text-indigo-300' : 'text-red-300'}
+          />
         </div>
       )}
 
-      {/* Toolbar */}
       <div className="flex gap-2 flex-wrap items-center">
-        <input className="input flex-1 min-w-48" placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <input
+          className="input flex-1 min-w-48"
+          placeholder="Search description or category…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
         <select className="input w-auto" value={filterType} onChange={(e) => setFilterType(e.target.value)}>
           <option value="">All types</option>
           {TRANSACTION_TYPES.map((t) => <option key={t}>{t}</option>)}
         </select>
-        {canEdit && (
-          <>
-            <button onClick={() => setImportOpen(true)} className="btn-secondary">Import CSV</button>
-            <button onClick={() => { setEditTarget(null); setAddOpen(true); }} className="btn-primary">+ Add</button>
-          </>
-        )}
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center h-40 text-gray-600">Loading…</div>
+        <div className="flex items-center justify-center h-40 text-gray-500 text-sm">Loading…</div>
       ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-40 text-gray-600 gap-2">
-          <span className="text-4xl">💳</span><p>No transactions yet</p>
-        </div>
+        <FinanceEmpty title="No transactions yet" description="Add a transaction or import a CSV to get started." />
       ) : (
         <div className="card overflow-hidden">
-          {withRunning.map((t, idx) => {
-            const isIncome = INCOME_TYPES.has(t.type);
-            return (
-              <div key={t.id} className={`flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 px-4 py-3 ${idx < withRunning.length - 1 ? 'border-b border-gray-800/60' : ''} hover:bg-gray-800/30`}>
-                <span className="text-xs text-gray-500 tabular-nums flex-shrink-0 w-24">{new Date(t.date).toLocaleDateString()}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-200 truncate">{t.description}</p>
-                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                    {t.category && <span className="text-xs text-gray-500">{t.category}</span>}
-                    {t.receiptUrl && (
-                      <a href={t.receiptUrl} target="_blank" rel="noopener noreferrer"
-                        className="text-xs text-indigo-400 hover:underline flex-shrink-0">
-                        📎 {t.receiptName || 'Receipt'}
-                      </a>
-                    )}
-                  </div>
-                </div>
-                <span className={`badge border flex-shrink-0 ${TYPE_STYLES[t.type] || 'bg-gray-800 text-gray-400 border-gray-700'}`}>
-                  {t.type === 'FundraiserIncome' ? 'Fundraiser' : t.type}
-                </span>
-                <span className={`text-sm font-semibold tabular-nums flex-shrink-0 w-24 text-right ${isIncome ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {isIncome ? '+' : '-'}${t.amount.toFixed(2)}
-                </span>
-                <span className={`text-xs tabular-nums font-mono flex-shrink-0 w-20 text-right ${t.running >= 0 ? 'text-gray-500' : 'text-red-400'}`}>
-                  ${t.running.toFixed(2)}
-                </span>
-                {canEdit && (
-                  <div className="flex gap-1 flex-shrink-0">
-                    <button onClick={() => { setEditTarget(t); setAddOpen(true); }} className="btn-ghost text-xs py-0.5 px-1.5">✏</button>
-                    <button onClick={() => setDeleteTarget(t)} className="btn-ghost text-xs py-0.5 px-1.5 text-red-500">✕</button>
-                  </div>
-                )}
+          <div className={`hidden ${TX_GRID} px-4 py-2.5 border-b border-gray-800 bg-gray-800/40 text-xs font-medium uppercase tracking-wide text-gray-500`}>
+            <span>Date</span>
+            <span>Description</span>
+            <span>Type</span>
+            <span className="text-right">Amount</span>
+            <span className="text-right">Bal</span>
+            <span />
+          </div>
+
+          {grouped.map((group) => (
+            <div key={group.key}>
+              <div className="px-4 py-2 bg-gray-900/80 border-b border-gray-800 sticky top-0 z-10">
+                <p className="text-xs font-semibold text-gray-400">{formatDateLabel(group.date)}</p>
               </div>
-            );
-          })}
+              {group.rows.map((t) => {
+                const isIncome = INCOME_TYPES.has(t.type);
+                return (
+                  <div
+                    key={t.id}
+                    className={`px-4 py-3 border-b border-gray-800/60 last:border-0 hover:bg-gray-800/30 ${TX_GRID}`}
+                  >
+                    {/* Mobile card */}
+                    <div className="md:hidden space-y-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-100 truncate">{t.description}</p>
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            <span className={`badge border ${TYPE_STYLES[t.type] || 'bg-gray-800 text-gray-400 border-gray-700'}`}>
+                              {t.type === 'FundraiserIncome' ? 'Fundraiser' : t.type}
+                            </span>
+                            {t.category && <span className="text-xs text-gray-500">{t.category}</span>}
+                          </div>
+                        </div>
+                        {canEdit && (
+                          <RowActions
+                            actions={[
+                              { label: 'Edit', onClick: () => { setEditTarget(t); setAddOpen(true); } },
+                              { label: 'Delete', danger: true, onClick: () => setDeleteTarget(t) },
+                            ]}
+                          />
+                        )}
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className={`font-semibold tabular-nums ${isIncome ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {formatMoney(isIncome ? t.amount : -t.amount, { signed: true })}
+                        </span>
+                        <span className={`text-xs tabular-nums self-center ${t.running >= 0 ? 'text-gray-500' : 'text-red-400'}`}>
+                          Bal {formatMoney(t.running)}
+                        </span>
+                      </div>
+                      {t.receiptUrl && (
+                        <a href={t.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-400 hover:underline">
+                          Receipt{t.receiptName ? `: ${t.receiptName}` : ''}
+                        </a>
+                      )}
+                    </div>
+
+                    {/* Desktop grid */}
+                    <span className="hidden md:block text-sm text-gray-400 tabular-nums">
+                      {new Date(t.date).toLocaleDateString()}
+                    </span>
+                    <div className="hidden md:block min-w-0">
+                      <p className="text-sm text-gray-100 truncate">{t.description}</p>
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        {t.category && <span className="text-xs text-gray-500">{t.category}</span>}
+                        {t.receiptUrl && (
+                          <a href={t.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-400 hover:underline">
+                            Receipt
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                    <span className={`hidden md:inline-flex badge border justify-self-start ${TYPE_STYLES[t.type] || 'bg-gray-800 text-gray-400 border-gray-700'}`}>
+                      {t.type === 'FundraiserIncome' ? 'Fundraiser' : t.type}
+                    </span>
+                    <span className={`hidden md:block text-sm font-semibold tabular-nums text-right ${isIncome ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {formatMoney(isIncome ? t.amount : -t.amount, { signed: true })}
+                    </span>
+                    <span className={`hidden md:block text-xs tabular-nums text-right ${t.running >= 0 ? 'text-gray-500' : 'text-red-400'}`}>
+                      {formatMoney(t.running)}
+                    </span>
+                    <div className="hidden md:flex justify-end">
+                      {canEdit && (
+                        <RowActions
+                          actions={[
+                            { label: 'Edit', onClick: () => { setEditTarget(t); setAddOpen(true); } },
+                            { label: 'Delete', danger: true, onClick: () => setDeleteTarget(t) },
+                          ]}
+                        />
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+
+          {withRunning.length > PAGE_SIZE && (
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-gray-800 bg-gray-800/30">
+              <p className="text-xs text-gray-500">
+                {safePage * PAGE_SIZE + 1}–{Math.min((safePage + 1) * PAGE_SIZE, withRunning.length)} of {withRunning.length}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary text-xs"
+                  disabled={safePage === 0}
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary text-xs"
+                  disabled={safePage >= pageCount - 1}
+                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

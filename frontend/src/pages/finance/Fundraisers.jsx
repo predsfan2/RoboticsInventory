@@ -3,6 +3,9 @@ import { getFundraisers, createFundraiser, updateFundraiser, deleteFundraiser, a
 import { useAuth, useToast } from '../../App';
 import { hasPermission } from '../../lib/permissions';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import {
+  formatMoney, FinanceProgress, FinancePageHeader, FinanceEmpty, RowActions,
+} from '../../components/finance';
 
 // ── Fundraiser form modal ─────────────────────────────────────────────────────
 function FundraiserFormModal({ initial, onSave, onClose }) {
@@ -206,7 +209,7 @@ export default function Fundraisers() {
   const [deleteTarget, setDeleteTarget]         = useState(null);
   const [expanded, setExpanded]                 = useState({});
 
-  const canEdit = hasPermission(user, 'finance.edit');
+  const canEdit = hasPermission(user, 'finance.fundraisers.edit');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -223,93 +226,104 @@ export default function Fundraisers() {
   const toggleExpanded = (id) => setExpanded((e) => ({ ...e, [id]: !e[id] }));
 
   return (
-    <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-gray-100">Fundraisers</h2>
-        {canEdit && <button onClick={() => setAddOpen(true)} className="btn-primary">+ New Fundraiser</button>}
-      </div>
+    <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-5">
+      <FinancePageHeader title="Fundraisers">
+        {canEdit && <button type="button" onClick={() => setAddOpen(true)} className="btn-primary">+ New Fundraiser</button>}
+      </FinancePageHeader>
 
       {loading ? (
-        <div className="flex items-center justify-center h-40 text-gray-600">Loading…</div>
+        <div className="flex items-center justify-center h-40 text-gray-500 text-sm">Loading…</div>
       ) : fundraisers.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-40 text-gray-600 gap-2">
-          <span className="text-4xl">🏆</span><p>No fundraisers yet</p>
-        </div>
+        <FinanceEmpty title="No fundraisers yet" description="Create a fundraiser to track donations and daily totals." />
       ) : (
         <div className="space-y-3">
           {fundraisers.map((f) => {
-            const pct = f.targetAmount > 0 ? Math.min(100, (f.actualAmount / f.targetAmount) * 100) : 0;
             const isExpanded = expanded[f.id];
+            const entries = f.donations || [];
 
             return (
               <div key={f.id} className="card overflow-hidden">
-                <div className="p-4">
-                  <div className="flex items-start justify-between gap-3 mb-3">
+                <div className="p-5">
+                  <div className="flex items-start justify-between gap-3 mb-4">
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-gray-100">{f.name}</h3>
-                      <p className="text-xs text-gray-500">{new Date(f.date).toLocaleDateString()}</p>
+                      <h3 className="text-base font-semibold text-gray-100">{f.name}</h3>
+                      <p className="text-xs text-gray-500 mt-1">{new Date(f.date).toLocaleDateString()}</p>
                     </div>
                     {canEdit && (
-                      <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
+                      <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end items-center">
                         <button
+                          type="button"
                           onClick={() => setQuickTotalTarget(f)}
-                          className="btn-primary text-xs py-1 px-3"
+                          className="btn-primary text-sm py-1.5 px-3"
                           title="Record end-of-day total"
                         >
-                          ⚡ Quick Total
+                          Quick Total
                         </button>
                         <button
+                          type="button"
                           onClick={() => setDonationTarget(f)}
-                          className="btn-secondary text-xs py-1 px-3"
+                          className="btn-secondary text-sm py-1.5 px-3"
                           title="Add individual donor"
                         >
                           + Donation
                         </button>
-                        <button onClick={() => setEditTarget(f)} className="btn-secondary text-xs py-1 px-2">Edit</button>
-                        <button onClick={() => setDeleteTarget(f)} className="btn-ghost text-xs text-red-500">✕</button>
+                        <RowActions
+                          actions={[
+                            { label: 'Edit', onClick: () => setEditTarget(f) },
+                            { label: 'Delete', danger: true, onClick: () => setDeleteTarget(f) },
+                          ]}
+                        />
                       </div>
                     )}
                   </div>
 
-                  <div>
-                    <div className="flex justify-between text-xs text-gray-500 mb-1">
-                      <span className="font-semibold text-gray-300">${f.actualAmount.toFixed(2)} raised</span>
-                      {f.targetAmount > 0 && <span>goal: ${f.targetAmount.toFixed(2)}</span>}
-                    </div>
-                    {f.targetAmount > 0 && (
-                      <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full transition-all ${pct >= 100 ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: pct + '%' }} />
-                      </div>
-                    )}
-                    <div className="flex justify-between text-xs mt-1">
-                      <span className="text-indigo-400">{(f.donations || []).length} entr{(f.donations || []).length === 1 ? 'y' : 'ies'}</span>
-                      {f.targetAmount > 0 && <span className="text-gray-600">{pct.toFixed(0)}%</span>}
-                    </div>
-                  </div>
+                  <FinanceProgress
+                    current={f.actualAmount}
+                    target={f.targetAmount}
+                    showRemaining={f.targetAmount > 0}
+                  />
+                  <p className="text-xs text-gray-500 mt-2">
+                    {entries.length} entr{entries.length === 1 ? 'y' : 'ies'}
+                  </p>
                 </div>
 
-                {(f.donations || []).length > 0 && (
+                {entries.length > 0 && (
                   <>
                     <button
+                      type="button"
                       onClick={() => toggleExpanded(f.id)}
-                      className="w-full flex items-center justify-between px-4 py-2 bg-gray-800/40 hover:bg-gray-800 transition-colors border-t border-gray-800 text-xs text-gray-500"
+                      className="w-full flex items-center justify-between px-5 py-2.5 bg-gray-800/40 hover:bg-gray-800 transition-colors border-t border-gray-800 text-sm text-gray-400"
                     >
-                      <span>{isExpanded ? '▾ Hide' : '▸ Show'} entries</span>
-                      <span className="font-medium text-gray-400">{(f.donations || []).length} entries</span>
+                      <span>{isExpanded ? 'Hide entries' : 'Show entries'}</span>
+                      <span className="font-medium text-gray-500">{entries.length}</span>
                     </button>
                     {isExpanded && (
                       <div className="border-t border-gray-800">
-                        {[...(f.donations || [])].reverse().map((d) => (
-                          <div key={d.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-800/50 last:border-0">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm text-gray-200">{d.donor || 'Anonymous'}</p>
-                              {d.notes && <p className="text-xs text-gray-600">{d.notes}</p>}
+                        <div className="hidden md:grid grid-cols-[6.5rem_minmax(0,1fr)_6.5rem] gap-3 px-5 py-2 bg-gray-800/30 text-xs font-medium uppercase tracking-wide text-gray-500">
+                          <span>Date</span>
+                          <span>Donor</span>
+                          <span className="text-right">Amount</span>
+                        </div>
+                        {[...entries].reverse().map((d) => (
+                          <div
+                            key={d.id}
+                            className="grid grid-cols-1 md:grid-cols-[6.5rem_minmax(0,1fr)_6.5rem] gap-1 md:gap-3 px-5 py-2.5 border-b border-gray-800/50 last:border-0"
+                          >
+                            <span className="text-xs text-gray-500 tabular-nums md:text-sm md:text-gray-400">
+                              {new Date(d.date).toLocaleDateString()}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-sm text-gray-200 truncate">{d.donor || 'Anonymous'}</p>
+                                {d.isQuickTotal && (
+                                  <span className="badge bg-indigo-900/50 text-indigo-400 border border-indigo-800/50">Total</span>
+                                )}
+                              </div>
+                              {d.notes && <p className="text-xs text-gray-600 mt-0.5">{d.notes}</p>}
                             </div>
-                            {d.isQuickTotal && (
-                              <span className="badge bg-indigo-900/50 text-indigo-400 border border-indigo-800/50 text-xs flex-shrink-0">⚡ total</span>
-                            )}
-                            <span className="text-xs text-gray-500 flex-shrink-0">{new Date(d.date).toLocaleDateString()}</span>
-                            <span className="font-semibold text-emerald-400 text-sm flex-shrink-0">${d.amount.toFixed(2)}</span>
+                            <span className="font-semibold text-emerald-400 text-sm tabular-nums md:text-right">
+                              {formatMoney(d.amount)}
+                            </span>
                           </div>
                         ))}
                       </div>

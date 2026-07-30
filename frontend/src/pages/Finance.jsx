@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../App';
-import { hasPermission } from '../lib/permissions';
+import { hasPermission, canAccessFinance } from '../lib/permissions';
 import Transactions from './finance/Transactions';
 import Budget from './finance/Budget';
 import SavingsGoals from './finance/SavingsGoals';
@@ -10,38 +10,84 @@ import Fundraisers from './finance/Fundraisers';
 import Reports from './finance/Reports';
 
 const TABS = [
-  { id: 'transactions', label: 'Transactions', icon: '💳' },
-  { id: 'budget',       label: 'Budget',       icon: '📊' },
-  { id: 'goals',        label: 'Savings Goals', icon: '🎯' },
-  { id: 'reimburse',    label: 'Reimbursements', icon: '💸' },
-  { id: 'fundraisers',  label: 'Fundraisers',  icon: '🏆' },
-  { id: 'reports',      label: 'Reports',      icon: '📄' },
+  {
+    id: 'transactions',
+    label: 'Transactions',
+    canAccess: (user) => hasPermission(user, 'finance.transactions.view'),
+  },
+  {
+    id: 'budget',
+    label: 'Budget',
+    canAccess: (user) => hasPermission(user, 'finance.budget.view'),
+  },
+  {
+    id: 'goals',
+    label: 'Savings Goals',
+    canAccess: (user) => hasPermission(user, 'finance.goals.view'),
+  },
+  {
+    id: 'reimburse',
+    label: 'Reimbursements',
+    canAccess: (user) =>
+      hasPermission(user, 'finance.reimbursements.view')
+      || hasPermission(user, 'finance.reimbursements.request')
+      || hasPermission(user, 'finance.reimbursements.approve'),
+  },
+  {
+    id: 'fundraisers',
+    label: 'Fundraisers',
+    canAccess: (user) => hasPermission(user, 'finance.fundraisers.view'),
+  },
+  {
+    id: 'reports',
+    label: 'Reports',
+    canAccess: (user) => hasPermission(user, 'finance.reports.view'),
+  },
 ];
 
 function tabFromPath(pathname) {
   const parts = pathname.split('/').filter(Boolean);
-  // /finance or /finance/transactions → transactions
   const sub = parts[1];
   if (sub && TABS.some((t) => t.id === sub)) return sub;
-  return 'transactions';
+  return null;
 }
 
 export default function Finance() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [tab, setTab] = useState(() => tabFromPath(location.pathname));
+
+  const visibleTabs = useMemo(
+    () => TABS.filter((t) => t.canAccess(user)),
+    [user]
+  );
+
+  const pathTab = tabFromPath(location.pathname);
+  const [tab, setTab] = useState(() => pathTab || visibleTabs[0]?.id || 'transactions');
 
   useEffect(() => {
-    setTab(tabFromPath(location.pathname));
-  }, [location.pathname]);
+    if (!visibleTabs.length) return;
+    const next = pathTab && visibleTabs.some((t) => t.id === pathTab)
+      ? pathTab
+      : visibleTabs[0].id;
+    setTab(next);
+    if (pathTab !== next) {
+      navigate(`/finance/${next}`, { replace: true });
+    }
+  }, [location.pathname, visibleTabs, pathTab, navigate]);
 
-  const canFinance = hasPermission(user, 'finance.view');
-  if (!canFinance) {
+  if (!canAccessFinance(user)) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 text-gray-600 gap-2">
-        <span className="text-4xl">🔒</span>
-        <p>Finance is restricted.</p>
+      <div className="flex flex-col items-center justify-center h-64 text-gray-500 gap-2">
+        <p className="text-sm font-medium">Finance is restricted.</p>
+      </div>
+    );
+  }
+
+  if (!visibleTabs.length) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 text-gray-500 gap-2">
+        <p className="text-sm font-medium">No finance areas available.</p>
       </div>
     );
   }
@@ -54,29 +100,29 @@ export default function Finance() {
   return (
     <div className="flex flex-col h-full">
       <div className="border-b border-gray-800 bg-gray-900/60 px-4 flex overflow-x-auto gap-1 flex-shrink-0">
-        {TABS.map((t) => (
+        {visibleTabs.map((t) => (
           <button
             key={t.id}
+            type="button"
             onClick={() => selectTab(t.id)}
-            className={`flex items-center gap-1.5 px-3 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+            className={`px-3.5 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
               tab === t.id
                 ? 'border-indigo-500 text-indigo-300'
-                : 'border-transparent text-gray-500 hover:text-gray-300 hover:border-gray-600'
+                : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600'
             }`}
           >
-            <span>{t.icon}</span>
-            <span>{t.label}</span>
+            {t.label}
           </button>
         ))}
       </div>
 
       <div className="flex-1 overflow-y-auto">
         {tab === 'transactions' && <Transactions />}
-        {tab === 'budget'       && <Budget />}
-        {tab === 'goals'        && <SavingsGoals />}
-        {tab === 'reimburse'    && <Reimbursements />}
-        {tab === 'fundraisers'  && <Fundraisers />}
-        {tab === 'reports'      && <Reports />}
+        {tab === 'budget' && <Budget />}
+        {tab === 'goals' && <SavingsGoals />}
+        {tab === 'reimburse' && <Reimbursements />}
+        {tab === 'fundraisers' && <Fundraisers />}
+        {tab === 'reports' && <Reports />}
       </div>
     </div>
   );

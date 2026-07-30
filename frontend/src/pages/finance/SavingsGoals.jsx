@@ -6,6 +6,9 @@ import {
 import { useAuth, useToast } from '../../App';
 import { hasPermission } from '../../lib/permissions';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import {
+  FinanceProgress, FinancePageHeader, FinanceEmpty, RowActions,
+} from '../../components/finance';
 
 function GoalFormModal({ initial, onSave, onClose }) {
   const toast = useToast();
@@ -171,7 +174,7 @@ export default function SavingsGoals() {
   const [fundsTarget, setFundsTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
-  const canEdit = hasPermission(user, 'finance.edit');
+  const canEdit = hasPermission(user, 'finance.goals.edit');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -193,73 +196,53 @@ export default function SavingsGoals() {
   };
 
   return (
-    <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-gray-100">Savings Goals</h2>
+    <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-5">
+      <FinancePageHeader title="Savings Goals">
         {canEdit && (
-          <button onClick={() => setAddOpen(true)} className="btn-primary">+ New Goal</button>
+          <button type="button" onClick={() => setAddOpen(true)} className="btn-primary">+ New Goal</button>
         )}
-      </div>
+      </FinancePageHeader>
 
       {loading ? (
-        <div className="flex items-center justify-center h-40 text-gray-600">Loading…</div>
+        <div className="flex items-center justify-center h-40 text-gray-500 text-sm">Loading…</div>
       ) : goals.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-40 text-gray-600 gap-2">
-          <span className="text-4xl">🎯</span>
-          <p>No savings goals yet</p>
-        </div>
+        <FinanceEmpty title="No savings goals yet" description="Create a goal to track progress toward a target." />
       ) : (
         <div className="space-y-3">
           {goals.map((g) => {
-            const pct = g.targetAmount > 0 ? Math.min(100, (g.currentAmount / g.targetAmount) * 100) : 0;
-            const remaining = Math.max(0, g.targetAmount - g.currentAmount);
             const isComplete = g.currentAmount >= g.targetAmount;
             const isOverdue = g.deadline && new Date(g.deadline) < new Date() && !isComplete;
 
             return (
               <div key={g.id} className={`card p-5 ${isComplete ? 'border-emerald-800/60' : isOverdue ? 'border-red-800/60' : ''}`}>
-                <div className="flex items-start justify-between gap-3 mb-3">
+                <div className="flex items-start justify-between gap-3 mb-4">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-semibold text-gray-100">{g.name}</h3>
-                      {isComplete && <span className="badge bg-emerald-900/60 text-emerald-400 border border-emerald-800/50">Complete ✓</span>}
+                      <h3 className="text-base font-semibold text-gray-100">{g.name}</h3>
+                      {isComplete && <span className="badge bg-emerald-900/60 text-emerald-400 border border-emerald-800/50">Complete</span>}
                       {isOverdue && <span className="badge bg-red-900/60 text-red-400 border border-red-800/50">Overdue</span>}
                     </div>
                     {g.deadline && (
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        Deadline: {new Date(g.deadline).toLocaleDateString()}
+                      <p className="text-xs text-gray-500 mt-1">
+                        Deadline {new Date(g.deadline).toLocaleDateString()}
                       </p>
                     )}
                   </div>
-                  <div className="flex gap-2 flex-shrink-0">
+                  <div className="flex gap-2 flex-shrink-0 items-center">
                     {canEdit && !isComplete && (
-                      <button onClick={() => setFundsTarget(g)} className="btn-primary text-xs py-1 px-3">+ Funds</button>
+                      <button type="button" onClick={() => setFundsTarget(g)} className="btn-primary text-sm py-1.5 px-3">+ Funds</button>
                     )}
                     {canEdit && (
-                      <button onClick={() => setEditTarget(g)} className="btn-secondary text-xs py-1 px-2">Edit</button>
-                    )}
-                    {canEdit && (
-                      <button onClick={() => setDeleteTarget(g)} className="btn-ghost text-xs text-red-500">✕</button>
+                      <RowActions
+                        actions={[
+                          { label: 'Edit', onClick: () => setEditTarget(g) },
+                          { label: 'Delete', danger: true, onClick: () => setDeleteTarget(g) },
+                        ]}
+                      />
                     )}
                   </div>
                 </div>
-
-                <div className="mb-2">
-                  <div className="flex justify-between text-xs text-gray-500 mb-1">
-                    <span>${g.currentAmount.toFixed(2)} raised</span>
-                    <span>${g.targetAmount.toFixed(2)} target</span>
-                  </div>
-                  <div className="h-3 bg-gray-800 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all ${isComplete ? 'bg-emerald-500' : pct >= 75 ? 'bg-blue-500' : pct >= 40 ? 'bg-indigo-500' : 'bg-gray-600'}`}
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                  <div className="flex justify-between text-xs mt-1">
-                    <span className={`font-medium ${isComplete ? 'text-emerald-400' : 'text-indigo-400'}`}>{pct.toFixed(1)}%</span>
-                    {!isComplete && <span className="text-gray-600">${remaining.toFixed(2)} to go</span>}
-                  </div>
-                </div>
+                <FinanceProgress current={g.currentAmount} target={g.targetAmount} />
               </div>
             );
           })}
