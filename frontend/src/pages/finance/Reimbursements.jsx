@@ -53,7 +53,7 @@ function SubmitModal({ onSave, onClose }) {
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-panel max-w-sm p-6">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold">Request Reimbursement</h2>
+          <h2 className="text-lg font-semibold">Add Reimbursement</h2>
           <button onClick={onClose} className="btn-ghost">✕</button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -150,7 +150,7 @@ export default function Reimbursements() {
           <h2 className="text-lg font-bold text-gray-100">Reimbursements</h2>
           {pendingCount > 0 && <span className="badge bg-amber-900/60 text-amber-400 border border-amber-800/50">{pendingCount} pending</span>}
         </div>
-        <button onClick={() => setAddOpen(true)} className="btn-primary">+ Request</button>
+        <button onClick={() => setAddOpen(true)} className="btn-primary">+ Add</button>
       </div>
 
       {/* Status filter */}
@@ -207,7 +207,7 @@ export default function Reimbursements() {
 
       {addOpen && (
         <SubmitModal
-          onSave={async (form) => { await createReimbursement(form); toast('Request submitted', 'success'); load(); }}
+          onSave={async (form) => { await createReimbursement(form); toast('Reimbursement added', 'success'); load(); }}
           onClose={() => setAddOpen(false)}
         />
       )}
