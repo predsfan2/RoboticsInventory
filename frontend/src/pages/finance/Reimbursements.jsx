@@ -14,7 +14,7 @@ const STATUS_STYLES = {
   denied:   'bg-red-900/60 text-red-400 border-red-800/50',
 };
 
-function SubmitModal({ onSave, onClose }) {
+function SubmitModal({ onSave, onClose, isAdmin }) {
   const toast = useToast();
   const [form, setForm]         = useState({ amount: '', reason: '', receiptUrl: '', receiptName: '' });
   const [saving, setSaving]     = useState(false);
@@ -53,7 +53,7 @@ function SubmitModal({ onSave, onClose }) {
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-panel max-w-sm p-6">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold">Add Reimbursement</h2>
+          <h2 className="text-lg font-semibold">{isAdmin ? 'Add Reimbursement' : 'Request Reimbursement'}</h2>
           <button onClick={onClose} className="btn-ghost">✕</button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -76,7 +76,9 @@ function SubmitModal({ onSave, onClose }) {
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
-            <button type="submit" disabled={saving || uploading} className="btn-primary">{saving ? 'Submitting…' : 'Submit'}</button>
+            <button type="submit" disabled={saving || uploading} className="btn-primary">
+              {saving ? (isAdmin ? 'Adding…' : 'Submitting…') : (isAdmin ? 'Add' : 'Submit')}
+            </button>
           </div>
         </form>
       </div>
@@ -150,7 +152,7 @@ export default function Reimbursements() {
           <h2 className="text-lg font-bold text-gray-100">Reimbursements</h2>
           {pendingCount > 0 && <span className="badge bg-amber-900/60 text-amber-400 border border-amber-800/50">{pendingCount} pending</span>}
         </div>
-        <button onClick={() => setAddOpen(true)} className="btn-primary">+ Add</button>
+        <button onClick={() => setAddOpen(true)} className="btn-primary">{isAdmin ? '+ Add' : '+ Request'}</button>
       </div>
 
       {/* Status filter */}
@@ -207,7 +209,12 @@ export default function Reimbursements() {
 
       {addOpen && (
         <SubmitModal
-          onSave={async (form) => { await createReimbursement(form); toast('Reimbursement added', 'success'); load(); }}
+          isAdmin={isAdmin}
+          onSave={async (form) => {
+            await createReimbursement(form);
+            toast(isAdmin ? 'Reimbursement added' : 'Request submitted', 'success');
+            load();
+          }}
           onClose={() => setAddOpen(false)}
         />
       )}
