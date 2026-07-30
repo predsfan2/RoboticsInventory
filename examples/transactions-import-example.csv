@@ -1,0 +1,5 @@
+date,type,description,category,amount,receiptUrl,fundraiser,donor
+2026-01-15,Purchase,Parts order – gears,Hardware,42.50,,,
+2026-01-20,Donation,Sponsor gift,Sponsors,100.00,,,
+2026-02-01,FundraiserIncome,Bake sale day 1,Fundraiser,75.00,,Spring Bake Sale,Anonymous
+2026-02-10,Reimbursement,Travel reimbursement – Jane,Travel,28.00,,,
