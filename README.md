@@ -187,6 +187,51 @@ Granular permissions can be customized per user on the **Team** page. Custom fie
 
 ---
 
+## Finance CSV Import
+
+Users with `finance.edit` can bulk-import ledger transactions from **Finance → Transactions → Import CSV**.
+
+One CSV covers all transaction types. Columns:
+
+```
+date,type,description,category,amount,receiptUrl,fundraiser,donor
+```
+
+| Column | Required | Notes |
+|--------|----------|--------|
+| `date` | yes | `YYYY-MM-DD`, `M/D/YYYY`, or ISO |
+| `type` | yes | See types below |
+| `description` | yes | Ledger description |
+| `category` | no | Free text |
+| `amount` | yes | Number ≥ 0 |
+| `receiptUrl` | no | Optional URL |
+| `fundraiser` | for linking FundraiserIncome | Match an existing fundraiser **name** (case-insensitive) |
+| `donor` | no | Used when linking FundraiserIncome; defaults to `Anonymous` |
+
+### Types and aliases
+
+| CSV value | Stored as |
+|-----------|-----------|
+| `Purchase` or `Expense` | Purchase |
+| `Donation` or `Income` | Donation |
+| `FundraiserIncome` or `Fundraiser` | FundraiserIncome |
+| `Reimbursement` | Reimbursement |
+
+### Fundraiser linking
+
+For `FundraiserIncome` rows, set `fundraiser` to an existing event name under **Finance → Fundraisers**. Import then:
+
+1. Creates the ledger transaction with `linkedFundraiserId`
+2. Appends a donation on that fundraiser and updates `actualAmount`
+
+If `fundraiser` is empty, the row is imported as standalone FundraiserIncome (no link). Unknown names fail that row.
+
+Example file: [`examples/transactions-import-example.csv`](examples/transactions-import-example.csv). The sample linked row uses **Spring Bake Sale** — create that fundraiser first (or change the name) before importing.
+
+Reports export still uses a shorter header (`date,type,description,category,amount,receiptUrl`); import accepts that shape when `fundraiser` / `donor` are omitted.
+
+---
+
 ## Data & Migration
 
 On every startup the server:
