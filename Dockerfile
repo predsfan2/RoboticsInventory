@@ -4,7 +4,9 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY frontend/package.json frontend/package-lock.json* ./frontend/
-RUN cd frontend && npm ci --omit=dev 2>/dev/null || npm install
+# DevDependencies (vite, etc.) are required for the frontend build stage.
+# --include=dev ensures they install even if NODE_ENV=production is set.
+RUN cd frontend && (npm ci --include=dev || npm install --include=dev)
 
 COPY frontend/ ./frontend/
 RUN cd frontend && npm run build
