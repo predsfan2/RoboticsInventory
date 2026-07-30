@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { getItems, createItem, updateItem, deleteItem, getLocations } from '../lib/api';
+import { getItems, createItem, updateItem, deleteItem, getLocations, getCustomFields } from '../lib/api';
 import { useAuth, useToast } from '../App';
+import { hasPermission } from '../lib/permissions';
 import { CATEGORIES, CONDITIONS, SORT_OPTIONS, CONDITION_ORDER } from '../lib/constants';
 import ItemCard from '../components/ItemCard';
 import ItemListRow from '../components/ItemListRow';
@@ -11,22 +12,86 @@ import MoveRequestModal from '../modals/MoveRequestModal';
 const LS_VIEW = 'rt_inv_view';
 const LS_SORT = 'rt_inv_sort';
 
-function ItemFormModal({ initial, locations, onSave, onClose }) {
-  const [form, setForm] = useState(initial || {
-    name: '', itemNumber: '', category: '', totalQty: 1,
-    condition: 'Good', currentLocation: '', currentPerson: '',
-    notes: '', minStock: 0, isKit: false,
+function ItemFormModal({ initial, locations, allItems, customFieldDefs, onSave, onClose }) {
+  const isEdit = !!initial?.id;
+  const [form, setForm] = useState(() => {
+    if (initial) {
+      return {
+        ...initial,
+        components: Array.isArray(initial.components) ? [...initial.components] : [],
+        customFields: { ...(initial.customFields || {}) },
+      };
+    }
+    return {
+      name: '', itemNumber: '', category: '', totalQty: 1,
+      condition: 'Good', currentLocation: '', currentPerson: '',
+      notes: '', minStock: 0, isKit: false, components: [], customFields: {},
+    };
   });
   const [saving, setSaving] = useState(false);
+  const [compQuery, setCompQuery] = useState('');
   const toast = useToast();
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const categoryFields = useMemo(() => {
+    if (!form.category) return [];
+    const def = (customFieldDefs || []).find((d) => d.category === form.category);
+    return def?.fields || [];
+  }, [form.category, customFieldDefs]);
+
+  const setCustom = (name, value) => {
+    setForm((f) => ({ ...f, customFields: { ...f.customFields, [name]: value } }));
+  };
+
+  const otherItems = useMemo(
+    () => (allItems || []).filter((i) => i.id !== initial?.id && !i.isKit),
+    [allItems, initial?.id]
+  );
+
+  const matchedComponents = compQuery.trim()
+    ? otherItems.filter((i) =>
+        i.name.toLowerCase().includes(compQuery.toLowerCase()) &&
+        !(form.components || []).some((c) => c.itemId === i.id)
+      ).slice(0, 8)
+    : [];
+
+  const addComponent = (item) => {
+    setForm((f) => ({
+      ...f,
+      components: [...(f.components || []), { itemId: item.id, name: item.name, qty: 1 }],
+    }));
+    setCompQuery('');
+  };
+
+  const setCompQty = (itemId, qty) => {
+    setForm((f) => ({
+      ...f,
+      components: (f.components || []).map((c) =>
+        c.itemId === itemId ? { ...c, qty: Math.max(1, parseInt(qty, 10) || 1) } : c
+      ),
+    }));
+  };
+
+  const removeComponent = (itemId) => {
+    setForm((f) => ({
+      ...f,
+      components: (f.components || []).filter((c) => c.itemId !== itemId),
+    }));
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
     try {
-      await onSave(form);
+      const payload = { ...form };
+      if (isEdit) {
+        delete payload.totalQty;
+      }
+      if (!payload.isKit) {
+        payload.components = [];
+      }
+      await onSave(payload);
       onClose();
     } catch (err) {
       toast(err.message, 'error');
@@ -37,9 +102,9 @@ function ItemFormModal({ initial, locations, onSave, onClose }) {
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal-panel max-w-lg p-6">
+      <div className="modal-panel max-w-lg p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold">{initial ? 'Edit Item' : 'Add Item'}</h2>
+          <h2 className="text-lg font-semibold">{isEdit ? 'Edit Item' : 'Add Item'}</h2>
           <button onClick={onClose} className="btn-ghost">✕</button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -59,10 +124,18 @@ function ItemFormModal({ initial, locations, onSave, onClose }) {
                 {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
               </select>
             </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">Qty</label>
-              <input type="number" min="1" className="input" value={form.totalQty} onChange={(e) => set('totalQty', parseInt(e.target.value) || 1)} />
-            </div>
+            {isEdit ? (
+              <div className="col-span-2">
+                <p className="text-xs text-amber-400/90 bg-amber-900/20 border border-amber-800/40 rounded-lg px-3 py-2">
+                  Qty is {form.totalQty}. Use stock adjust on the item detail page to change quantity — editing here does not update stock.
+                </p>
+              </div>
+            ) : (
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Qty</label>
+                <input type="number" min="1" className="input" value={form.totalQty} onChange={(e) => set('totalQty', parseInt(e.target.value) || 1)} />
+              </div>
+            )}
             <div>
               <label className="block text-xs text-gray-400 mb-1">Min Stock</label>
               <input type="number" min="0" className="input" value={form.minStock || 0} onChange={(e) => set('minStock', parseInt(e.target.value) || 0)} />
@@ -92,6 +165,82 @@ function ItemFormModal({ initial, locations, onSave, onClose }) {
               <input type="checkbox" id="isKit" checked={!!form.isKit} onChange={(e) => set('isKit', e.target.checked)} className="rounded" />
               <label htmlFor="isKit" className="text-sm text-gray-300">This is a kit</label>
             </div>
+
+            {form.isKit && (
+              <div className="col-span-2 border border-gray-800 rounded-lg p-3 space-y-2">
+                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Kit Components (BOM)</p>
+                <div className="relative">
+                  <input
+                    className="input text-sm"
+                    value={compQuery}
+                    onChange={(e) => setCompQuery(e.target.value)}
+                    placeholder="Search items to add…"
+                  />
+                  {matchedComponents.length > 0 && (
+                    <div className="absolute z-10 w-full mt-1 bg-gray-800 border border-gray-700 rounded-lg overflow-hidden shadow-xl">
+                      {matchedComponents.map((i) => (
+                        <button
+                          key={i.id}
+                          type="button"
+                          onClick={() => addComponent(i)}
+                          className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-700 text-sm text-left"
+                        >
+                          <span className="text-gray-200">{i.name}</span>
+                          <span className="text-xs text-gray-500 ml-auto">×{i.totalQty}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {(form.components || []).length === 0 ? (
+                  <p className="text-xs text-gray-600">No components yet</p>
+                ) : (
+                  <div className="space-y-1">
+                    {(form.components || []).map((c) => (
+                      <div key={c.itemId} className="flex items-center gap-2 bg-gray-800/50 rounded-lg px-2 py-1.5">
+                        <span className="text-sm text-gray-200 flex-1 truncate">{c.name}</span>
+                        <input
+                          type="number"
+                          min="1"
+                          className="input w-16 text-xs py-1"
+                          value={c.qty}
+                          onChange={(e) => setCompQty(c.itemId, e.target.value)}
+                        />
+                        <button type="button" onClick={() => removeComponent(c.itemId)} className="text-gray-600 hover:text-red-400 text-sm">✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {categoryFields.length > 0 && (
+              <div className="col-span-2 border border-gray-800 rounded-lg p-3 space-y-2">
+                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Custom Fields</p>
+                {categoryFields.map((cf) => (
+                  <div key={cf.name}>
+                    <label className="block text-xs text-gray-400 mb-1">{cf.label || cf.name}</label>
+                    {cf.type === 'select' ? (
+                      <select
+                        className="input"
+                        value={form.customFields?.[cf.name] ?? ''}
+                        onChange={(e) => setCustom(cf.name, e.target.value)}
+                      >
+                        <option value="">—</option>
+                        {(cf.options || []).map((o) => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        type={cf.type === 'number' ? 'number' : 'text'}
+                        className="input"
+                        value={form.customFields?.[cf.name] ?? ''}
+                        onChange={(e) => setCustom(cf.name, cf.type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
@@ -251,6 +400,7 @@ export default function Inventory() {
   const toast = useToast();
   const [items, setItems] = useState([]);
   const [locations, setLocations] = useState([]);
+  const [customFieldDefs, setCustomFieldDefs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState(() => localStorage.getItem(LS_VIEW) || 'grid');
   const [sort, setSort] = useState(() => localStorage.getItem(LS_SORT) || 'name_asc');
@@ -266,14 +416,14 @@ export default function Inventory() {
   const [moveReqItem, setMoveReqItem] = useState(null);
   const [directMoveItem, setDirectMoveItem] = useState(null);
 
-  const canMove = ['Admin', 'Manager'].includes(user?.role);
-  const canEdit = ['Admin', 'Manager'].includes(user?.role);
-  const canDelete = user?.role === 'Admin';
+  const canMove = hasPermission(user, 'moves.approve');
+  const canEdit = hasPermission(user, 'inventory.edit');
+  const canDelete = hasPermission(user, 'inventory.delete');
 
   const load = useCallback(() => {
     setLoading(true);
-    Promise.all([getItems(), getLocations()])
-      .then(([it, locs]) => { setItems(it); setLocations(locs); })
+    Promise.all([getItems(), getLocations(), getCustomFields().catch(() => [])])
+      .then(([it, locs, cfs]) => { setItems(it); setLocations(locs); setCustomFieldDefs(cfs || []); })
       .catch((e) => toast(e.message, 'error'))
       .finally(() => setLoading(false));
   }, []);
@@ -459,6 +609,8 @@ export default function Inventory() {
         <ItemFormModal
           initial={editItem}
           locations={locations}
+          allItems={items}
+          customFieldDefs={customFieldDefs}
           onSave={handleSave}
           onClose={() => { setAddOpen(false); setEditItem(null); }}
         />
@@ -474,6 +626,7 @@ export default function Inventory() {
         <ItemDetailModal
           item={detailItem}
           locations={locations}
+          customFieldDefs={customFieldDefs}
           onClose={() => setDetailItem(null)}
           onRefresh={() => { load(); }}
           onEdit={canEdit ? (i) => { setDetailItem(null); setEditItem(i); setAddOpen(true); } : undefined}

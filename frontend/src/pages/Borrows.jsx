@@ -1,10 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getBorrows, createBorrow, returnBorrow, deleteBorrow, getItems } from '../lib/api';
+import { getBorrows, createBorrow, updateBorrow, returnBorrow, deleteBorrow, getItems } from '../lib/api';
 import { useAuth, useToast } from '../App';
+import { hasPermission } from '../lib/permissions';
 import ConfirmDialog from '../components/ConfirmDialog';
 
-function BorrowFormModal({ items, onSave, onClose }) {
-  const [form, setForm] = useState({ itemId: '', borrowerName: '', contact: '', expectedReturnDate: '', notes: '' });
+function BorrowFormModal({ initial, items, onSave, onClose }) {
+  const isEdit = !!initial?.id;
+  const [form, setForm] = useState(initial ? {
+    itemId: initial.itemId || '',
+    borrowerName: initial.borrowerName || '',
+    contact: initial.contact || '',
+    expectedReturnDate: initial.expectedReturnDate ? String(initial.expectedReturnDate).slice(0, 10) : '',
+    notes: initial.notes || '',
+  } : { itemId: '', borrowerName: '', contact: '', expectedReturnDate: '', notes: '' });
   const [query, setQuery] = useState('');
   const [saving, setSaving] = useState(false);
   const toast = useToast();
@@ -33,17 +41,18 @@ function BorrowFormModal({ items, onSave, onClose }) {
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-panel max-w-lg p-6">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold">Add Borrow</h2>
+          <h2 className="text-lg font-semibold">{isEdit ? 'Edit Borrow' : 'Add Borrow'}</h2>
           <button onClick={onClose} className="btn-ghost">✕</button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-3">
-          {/* Item search */}
           <div className="relative">
             <label className="block text-xs text-gray-400 mb-1">Item *</label>
             {selectedItem ? (
               <div className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2">
                 <span className="text-sm text-gray-200 flex-1">{selectedItem.name}</span>
-                <button type="button" onClick={() => { setForm((f) => ({ ...f, itemId: '' })); setQuery(''); }} className="text-gray-500 hover:text-gray-300 text-sm">✕</button>
+                {!isEdit && (
+                  <button type="button" onClick={() => { setForm((f) => ({ ...f, itemId: '' })); setQuery(''); }} className="text-gray-500 hover:text-gray-300 text-sm">✕</button>
+                )}
               </div>
             ) : (
               <>
@@ -89,7 +98,7 @@ function BorrowFormModal({ items, onSave, onClose }) {
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
-            <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving…' : 'Create Borrow'}</button>
+            <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving…' : isEdit ? 'Save' : 'Create Borrow'}</button>
           </div>
         </form>
       </div>
@@ -105,10 +114,11 @@ export default function Borrows() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('active');
   const [addOpen, setAddOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [returning, setReturning] = useState({});
-  const canDelete = user?.role === 'Admin';
-  const canAdd = ['Admin', 'Manager', 'Member'].includes(user?.role);
+  const canManage = hasPermission(user, 'borrows.manage');
+  const canView = hasPermission(user, 'borrows.view');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -144,6 +154,15 @@ export default function Borrows() {
     }
   };
 
+  if (!canView) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 text-gray-600 gap-2">
+        <span className="text-4xl">🔒</span>
+        <p>You do not have permission to view borrows.</p>
+      </div>
+    );
+  }
+
   const now = new Date();
   const active = borrows.filter((b) => b.status === 'active');
   const returned = borrows.filter((b) => b.status === 'returned');
@@ -153,10 +172,9 @@ export default function Borrows() {
     <div className="p-4 md:p-6 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <h1 className="text-xl font-bold text-gray-100">Borrows</h1>
-        {canAdd && <button onClick={() => setAddOpen(true)} className="btn-primary">+ Add Borrow</button>}
+        {canManage && <button onClick={() => setAddOpen(true)} className="btn-primary">+ Add Borrow</button>}
       </div>
 
-      {/* Tabs */}
       <div className="flex border-b border-gray-800 mb-4">
         <button onClick={() => setTab('active')} className={`tab-btn ${tab === 'active' ? 'tab-active' : 'tab-inactive'}`}>
           Active ({active.length})
@@ -199,12 +217,15 @@ export default function Borrows() {
                   {b.notes && <p className="text-xs text-gray-600 mt-1 truncate">{b.notes}</p>}
                 </div>
                 <div className="flex gap-2 flex-shrink-0">
-                  {b.status === 'active' && (
+                  {b.status === 'active' && canManage && (
                     <button onClick={() => handleReturn(b)} disabled={returning[b.id]} className="btn-primary text-xs py-1 px-3">
                       {returning[b.id] ? '…' : 'Return'}
                     </button>
                   )}
-                  {canDelete && (
+                  {canManage && b.status === 'active' && (
+                    <button onClick={() => setEditTarget(b)} className="btn-secondary text-xs py-1 px-2">Edit</button>
+                  )}
+                  {canManage && (
                     <button onClick={() => setDeleteTarget(b)} className="btn-ghost text-xs text-red-500">✕</button>
                   )}
                 </div>
@@ -219,6 +240,14 @@ export default function Borrows() {
           items={items}
           onSave={async (form) => { await createBorrow(form); toast('Borrow created', 'success'); load(); }}
           onClose={() => setAddOpen(false)}
+        />
+      )}
+      {editTarget && (
+        <BorrowFormModal
+          initial={editTarget}
+          items={items}
+          onSave={async (form) => { await updateBorrow(editTarget.id, form); toast('Borrow updated', 'success'); load(); }}
+          onClose={() => setEditTarget(null)}
         />
       )}
       {deleteTarget && (

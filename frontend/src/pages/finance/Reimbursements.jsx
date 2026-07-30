@@ -5,6 +5,7 @@ import {
   uploadReceipt,
 } from '../../lib/api';
 import { useAuth, useToast } from '../../App';
+import { hasPermission } from '../../lib/permissions';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import ReceiptField from '../../components/ReceiptField';
 
@@ -119,7 +120,7 @@ export default function Reimbursements() {
   const [busy, setBusy] = useState({});
   const [filterStatus, setFilterStatus] = useState('');
 
-  const isAdmin = ['Admin', 'Manager', 'Accounting Admin'].includes(user?.role);
+  const isAdmin = hasPermission(user, 'finance.edit');
 
   const load = useCallback(() => {
     setLoading(true);

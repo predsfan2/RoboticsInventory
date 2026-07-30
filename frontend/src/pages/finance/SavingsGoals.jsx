@@ -1,17 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  getGoals, createGoal, updateBudget, addFundsToGoal, deleteTransaction,
-  getTransactions,
+  getGoals, createGoal, updateGoal, deleteGoal, addFundsToGoal,
+  linkTransactionToGoal, getTransactions,
 } from '../../lib/api';
 import { useAuth, useToast } from '../../App';
+import { hasPermission } from '../../lib/permissions';
 import ConfirmDialog from '../../components/ConfirmDialog';
-import { api } from '../../lib/api';
 
-const deleteGoal = (id) => api.del(`/goals/${id}`);
-
-function GoalFormModal({ onSave, onClose }) {
+function GoalFormModal({ initial, onSave, onClose }) {
   const toast = useToast();
-  const [form, setForm] = useState({ name: '', targetAmount: '', currentAmount: '', deadline: '' });
+  const [form, setForm] = useState(initial ? {
+    name: initial.name || '',
+    targetAmount: String(initial.targetAmount ?? ''),
+    currentAmount: String(initial.currentAmount ?? ''),
+    deadline: initial.deadline ? String(initial.deadline).slice(0, 10) : '',
+  } : { name: '', targetAmount: '', currentAmount: '', deadline: '' });
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -36,7 +39,7 @@ function GoalFormModal({ onSave, onClose }) {
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-panel max-w-sm p-6">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold">New Savings Goal</h2>
+          <h2 className="text-lg font-semibold">{initial ? 'Edit Savings Goal' : 'New Savings Goal'}</h2>
           <button onClick={onClose} className="btn-ghost">✕</button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -60,7 +63,7 @@ function GoalFormModal({ onSave, onClose }) {
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
-            <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving…' : 'Create Goal'}</button>
+            <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving…' : initial ? 'Save' : 'Create Goal'}</button>
           </div>
         </form>
       </div>
@@ -70,7 +73,7 @@ function GoalFormModal({ onSave, onClose }) {
 
 function AddFundsModal({ goal, transactions, onClose, onSuccess }) {
   const toast = useToast();
-  const [mode, setMode] = useState('new'); // 'new' | 'existing'
+  const [mode, setMode] = useState('new');
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState(`Contribution to: ${goal.name}`);
   const [selectedTxId, setSelectedTxId] = useState('');
@@ -85,13 +88,13 @@ function AddFundsModal({ goal, transactions, onClose, onSuccess }) {
     setSaving(true);
     try {
       if (mode === 'new') {
-        await addFundsToGoal(goal.id, parseFloat(amount) || 0);
+        await addFundsToGoal(goal.id, parseFloat(amount) || 0, description);
         toast(`$${parseFloat(amount).toFixed(2)} added to ${goal.name}`, 'success');
       } else {
+        if (!selectedTxId) throw new Error('Select a transaction');
+        await linkTransactionToGoal(goal.id, selectedTxId, description);
         const tx = transactions.find((t) => t.id === selectedTxId);
-        if (!tx) throw new Error('Transaction not found');
-        await addFundsToGoal(goal.id, tx.amount);
-        toast(`$${tx.amount.toFixed(2)} allocated from transaction`, 'success');
+        toast(`$${tx?.amount?.toFixed(2) || '?'} linked to ${goal.name}`, 'success');
       }
       onSuccess();
     } catch (err) {
@@ -110,7 +113,6 @@ function AddFundsModal({ goal, transactions, onClose, onSuccess }) {
         </div>
         <p className="text-sm text-gray-400 mb-4">Goal: <strong className="text-gray-200">{goal.name}</strong></p>
 
-        {/* Mode toggle */}
         <div className="flex gap-2 mb-4">
           <button type="button" onClick={() => setMode('new')} className={mode === 'new' ? 'btn-primary flex-1 text-xs' : 'btn-secondary flex-1 text-xs'}>
             New Transaction
@@ -150,7 +152,7 @@ function AddFundsModal({ goal, transactions, onClose, onSuccess }) {
           )}
           <div className="flex justify-end gap-2 pt-1">
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
-            <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving…' : 'Add Funds'}</button>
+            <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving…' : mode === 'existing' ? 'Link' : 'Add Funds'}</button>
           </div>
         </form>
       </div>
@@ -165,10 +167,11 @@ export default function SavingsGoals() {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState(null);
   const [fundsTarget, setFundsTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
-  const canEdit = ['Admin', 'Manager', 'Accounting Admin'].includes(user?.role);
+  const canEdit = hasPermission(user, 'finance.edit');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -233,12 +236,14 @@ export default function SavingsGoals() {
                       <button onClick={() => setFundsTarget(g)} className="btn-primary text-xs py-1 px-3">+ Funds</button>
                     )}
                     {canEdit && (
+                      <button onClick={() => setEditTarget(g)} className="btn-secondary text-xs py-1 px-2">Edit</button>
+                    )}
+                    {canEdit && (
                       <button onClick={() => setDeleteTarget(g)} className="btn-ghost text-xs text-red-500">✕</button>
                     )}
                   </div>
                 </div>
 
-                {/* Progress bar */}
                 <div className="mb-2">
                   <div className="flex justify-between text-xs text-gray-500 mb-1">
                     <span>${g.currentAmount.toFixed(2)} raised</span>
@@ -265,6 +270,13 @@ export default function SavingsGoals() {
         <GoalFormModal
           onSave={async (form) => { await createGoal(form); toast('Goal created', 'success'); load(); }}
           onClose={() => setAddOpen(false)}
+        />
+      )}
+      {editTarget && (
+        <GoalFormModal
+          initial={editTarget}
+          onSave={async (form) => { await updateGoal(editTarget.id, form); toast('Goal updated', 'success'); load(); }}
+          onClose={() => setEditTarget(null)}
         />
       )}
       {fundsTarget && (

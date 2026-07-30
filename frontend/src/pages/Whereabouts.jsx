@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getItems, getLocations, moveItemDirect } from '../lib/api';
 import { useAuth, useToast } from '../App';
+import { hasPermission } from '../lib/permissions';
 import { CONDITION_COLORS } from '../lib/constants';
 import MoveRequestModal from '../modals/MoveRequestModal';
 import ItemDetailModal from '../modals/ItemDetailModal';
@@ -60,7 +61,7 @@ export default function Whereabouts() {
   const [detailItem, setDetailItem] = useState(null);
   const [expandedGroups, setExpandedGroups] = useState({});
 
-  const canMove = ['Admin', 'Manager'].includes(user?.role);
+  const canMove = hasPermission(user, 'moves.approve');
 
   const load = useCallback(() => {
     setLoading(true);

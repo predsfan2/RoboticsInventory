@@ -1,15 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getFundraisers, createFundraiser, addDonation, addQuickTotal } from '../../lib/api';
+import { getFundraisers, createFundraiser, updateFundraiser, deleteFundraiser, addDonation, addQuickTotal } from '../../lib/api';
 import { useAuth, useToast } from '../../App';
-import { api } from '../../lib/api';
+import { hasPermission } from '../../lib/permissions';
 import ConfirmDialog from '../../components/ConfirmDialog';
 
-const deleteFundraiser = (id) => api.del('/fundraisers/' + id);
-
-// ── New Fundraiser modal ──────────────────────────────────────────────────────
-function FundraiserFormModal({ onSave, onClose }) {
+// ── Fundraiser form modal ─────────────────────────────────────────────────────
+function FundraiserFormModal({ initial, onSave, onClose }) {
   const toast = useToast();
-  const [form, setForm] = useState({
+  const [form, setForm] = useState(initial ? {
+    name: initial.name || '',
+    date: initial.date ? String(initial.date).slice(0, 10) : new Date().toISOString().slice(0, 10),
+    targetAmount: String(initial.targetAmount ?? ''),
+    actualAmount: String(initial.actualAmount ?? ''),
+  } : {
     name: '', date: new Date().toISOString().slice(0, 10),
     targetAmount: '', actualAmount: '',
   });
@@ -30,7 +33,7 @@ function FundraiserFormModal({ onSave, onClose }) {
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-panel max-w-sm p-6">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold">New Fundraiser</h2>
+          <h2 className="text-lg font-semibold">{initial ? 'Edit Fundraiser' : 'New Fundraiser'}</h2>
           <button onClick={onClose} className="btn-ghost">✕</button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -48,13 +51,13 @@ function FundraiserFormModal({ onSave, onClose }) {
               <input type="number" step="0.01" min="0" className="input" value={form.targetAmount} onChange={(e) => set('targetAmount', e.target.value)} placeholder="0.00" />
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Starting Amount ($)</label>
+              <label className="block text-xs text-gray-400 mb-1">{initial ? 'Actual ($)' : 'Starting Amount ($)'}</label>
               <input type="number" step="0.01" min="0" className="input" value={form.actualAmount} onChange={(e) => set('actualAmount', e.target.value)} placeholder="0.00" />
             </div>
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
-            <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving…' : 'Create'}</button>
+            <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving…' : initial ? 'Save' : 'Create'}</button>
           </div>
         </form>
       </div>
@@ -197,12 +200,13 @@ export default function Fundraisers() {
   const [fundraisers, setFundraisers] = useState([]);
   const [loading, setLoading]         = useState(true);
   const [addOpen, setAddOpen]         = useState(false);
+  const [editTarget, setEditTarget]   = useState(null);
   const [donationTarget, setDonationTarget]     = useState(null);
   const [quickTotalTarget, setQuickTotalTarget] = useState(null);
   const [deleteTarget, setDeleteTarget]         = useState(null);
   const [expanded, setExpanded]                 = useState({});
 
-  const canEdit = ['Admin', 'Manager', 'Accounting Admin'].includes(user?.role);
+  const canEdit = hasPermission(user, 'finance.edit');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -239,7 +243,6 @@ export default function Fundraisers() {
 
             return (
               <div key={f.id} className="card overflow-hidden">
-                {/* Header */}
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div className="flex-1 min-w-0">
@@ -248,7 +251,6 @@ export default function Fundraisers() {
                     </div>
                     {canEdit && (
                       <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
-                        {/* Quick total — main CTA for stands/booths */}
                         <button
                           onClick={() => setQuickTotalTarget(f)}
                           className="btn-primary text-xs py-1 px-3"
@@ -263,12 +265,12 @@ export default function Fundraisers() {
                         >
                           + Donation
                         </button>
+                        <button onClick={() => setEditTarget(f)} className="btn-secondary text-xs py-1 px-2">Edit</button>
                         <button onClick={() => setDeleteTarget(f)} className="btn-ghost text-xs text-red-500">✕</button>
                       </div>
                     )}
                   </div>
 
-                  {/* Progress bar */}
                   <div>
                     <div className="flex justify-between text-xs text-gray-500 mb-1">
                       <span className="font-semibold text-gray-300">${f.actualAmount.toFixed(2)} raised</span>
@@ -286,7 +288,6 @@ export default function Fundraisers() {
                   </div>
                 </div>
 
-                {/* Entry list toggle */}
                 {(f.donations || []).length > 0 && (
                   <>
                     <button
@@ -325,6 +326,13 @@ export default function Fundraisers() {
         <FundraiserFormModal
           onSave={async (form) => { await createFundraiser(form); toast('Fundraiser created', 'success'); load(); }}
           onClose={() => setAddOpen(false)}
+        />
+      )}
+      {editTarget && (
+        <FundraiserFormModal
+          initial={editTarget}
+          onSave={async (form) => { await updateFundraiser(editTarget.id, form); toast('Fundraiser updated', 'success'); load(); }}
+          onClose={() => setEditTarget(null)}
         />
       )}
       {quickTotalTarget && (

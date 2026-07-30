@@ -102,17 +102,22 @@ export default function Reports() {
   const exportDonations = () => {
     if (!donationsReport) return;
     const rows = [];
+    // Prefer per-fundraiser donations arrays from the API
     (donationsReport.fundraisers || []).forEach((f) => {
       (f.donations || []).forEach((d) => {
         rows.push({
           fundraiser: f.name,
-          donor: d.donor || 'Anonymous',
-          amount: d.amount.toFixed(2),
-          date: new Date(d.date).toLocaleDateString(),
+          donor: d.donor || (d.isQuickTotal ? (d.label || 'Daily total') : 'Anonymous'),
+          amount: Number(d.amount || 0).toFixed(2),
+          date: d.date ? new Date(d.date).toLocaleDateString() : '',
           notes: d.notes || '',
         });
       });
     });
+    if (rows.length === 0) {
+      toast('No donation entries to export', 'info');
+      return;
+    }
     const csv = toCSV(rows, ['fundraiser', 'donor', 'amount', 'date', 'notes']);
     downloadCSV('donations.csv', csv);
     toast('Donations exported', 'success');

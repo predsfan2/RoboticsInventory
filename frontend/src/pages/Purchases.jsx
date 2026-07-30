@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getPurchases, createPurchase, updatePurchase, deletePurchase, setPurchaseStatus } from '../lib/api';
 import { useAuth, useToast } from '../App';
+import { hasPermission } from '../lib/permissions';
 import { CATEGORIES, PRIORITIES, PURCHASE_STATUSES } from '../lib/constants';
 import ConfirmDialog from '../components/ConfirmDialog';
 
@@ -107,8 +108,8 @@ export default function Purchases() {
   const [statusLoading, setStatusLoading] = useState({});
   const [filterStatus, setFilterStatus] = useState('');
 
-  const canEdit = ['Admin', 'Manager'].includes(user?.role);
-  const canDelete = user?.role === 'Admin';
+  const canEdit = hasPermission(user, 'purchases.edit');
+  const canDelete = hasPermission(user, 'purchases.edit');
 
   const load = useCallback(() => {
     setLoading(true);

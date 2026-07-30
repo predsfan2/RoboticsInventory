@@ -4,6 +4,7 @@ import {
   deleteInvoice, updateUnit,
 } from '../lib/api';
 import { useAuth, useToast } from '../App';
+import { hasPermission } from '../lib/permissions';
 import { CONDITION_COLORS, CONDITIONS } from '../lib/constants';
 import ConditionUpdateModal from './ConditionUpdateModal';
 import UnitManagerModal from './UnitManagerModal';
@@ -16,13 +17,13 @@ function Tab({ label, active, onClick }) {
   );
 }
 
-function OverviewTab({ item, onRefresh }) {
+function OverviewTab({ item, customFieldDefs, onRefresh }) {
   const toast = useToast();
   const { user } = useAuth();
   const [adjChange, setAdjChange] = useState('');
   const [adjReason, setAdjReason] = useState('');
   const [adjusting, setAdjusting] = useState(false);
-  const canEdit = ['Admin', 'Manager'].includes(user?.role);
+  const canEdit = hasPermission(user, 'inventory.edit');
 
   const handleAdj = async (delta) => {
     const change = parseInt(adjChange, 10);
@@ -42,6 +43,14 @@ function OverviewTab({ item, onRefresh }) {
   };
 
   const isLowStock = item.totalQty <= item.minStock && item.minStock > 0;
+
+  const categoryFieldDefs = (customFieldDefs || []).find((d) => d.category === item.category)?.fields || [];
+  const customEntries = Object.entries(item.customFields || {}).filter(([, v]) => v !== '' && v != null);
+  const labeledCustom = categoryFieldDefs.length
+    ? categoryFieldDefs
+        .filter((cf) => item.customFields?.[cf.name] !== undefined && item.customFields?.[cf.name] !== '')
+        .map((cf) => ({ label: cf.label || cf.name, value: item.customFields[cf.name] }))
+    : customEntries.map(([k, v]) => ({ label: k, value: v }));
 
   return (
     <div className="space-y-5">
@@ -65,6 +74,34 @@ function OverviewTab({ item, onRefresh }) {
       {isLowStock && (
         <div className="flex items-center gap-2 bg-amber-900/30 border border-amber-700/40 rounded-lg px-4 py-2.5 text-sm text-amber-300">
           ⚠ Stock is at or below minimum ({item.totalQty}/{item.minStock})
+        </div>
+      )}
+
+      {item.isKit && (item.components || []).length > 0 && (
+        <div>
+          <p className="text-xs text-gray-500 mb-2 font-medium uppercase tracking-wide">Kit Components</p>
+          <div className="space-y-1">
+            {(item.components || []).map((c) => (
+              <div key={c.itemId} className="flex items-center gap-2 bg-gray-800/40 rounded-lg px-3 py-2 text-sm">
+                <span className="text-gray-200 flex-1">{c.name || c.itemId}</span>
+                <span className="text-gray-500">×{c.qty}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {labeledCustom.length > 0 && (
+        <div>
+          <p className="text-xs text-gray-500 mb-2 font-medium uppercase tracking-wide">Custom Fields</p>
+          <div className="grid grid-cols-2 gap-2">
+            {labeledCustom.map(({ label, value }) => (
+              <div key={label} className="bg-gray-800/40 rounded-lg px-3 py-2">
+                <p className="text-xs text-gray-500 mb-0.5">{label}</p>
+                <p className="text-sm text-gray-200">{String(value)}</p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -224,7 +261,7 @@ function FilesTab({ item, onRefresh }) {
   const toast = useToast();
   const { user } = useAuth();
   const [uploading, setUploading] = useState(false);
-  const canEdit = ['Admin', 'Manager'].includes(user?.role);
+  const canEdit = hasPermission(user, 'inventory.edit');
 
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -389,12 +426,12 @@ function UnitsTab({ item }) {
   );
 }
 
-export default function ItemDetailModal({ item: initialItem, locations, onClose, onRefresh, onEdit, onDelete }) {
+export default function ItemDetailModal({ item: initialItem, locations, customFieldDefs, onClose, onRefresh, onEdit, onDelete }) {
   const [item, setItem] = useState(initialItem);
   const [tab, setTab] = useState('overview');
   const [conditionModalOpen, setConditionModalOpen] = useState(false);
   const { user } = useAuth();
-  const canEdit = ['Admin', 'Manager'].includes(user?.role);
+  const canEdit = hasPermission(user, 'inventory.edit');
 
   useEffect(() => {
     const handler = (e) => { if (e.key === 'Escape') onClose(); };
@@ -458,7 +495,7 @@ export default function ItemDetailModal({ item: initialItem, locations, onClose,
 
         {/* Tab content */}
         <div className="p-5">
-          {tab === 'overview' && <OverviewTab item={item} onRefresh={refresh} />}
+          {tab === 'overview' && <OverviewTab item={item} customFieldDefs={customFieldDefs} onRefresh={refresh} />}
           {tab === 'comments' && <CommentsTab item={item} onRefresh={refresh} />}
           {tab === 'history' && <HistoryTab item={item} />}
           {tab === 'files' && <FilesTab item={item} onRefresh={refresh} />}
