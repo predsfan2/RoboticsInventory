@@ -7,8 +7,13 @@ import { getBudgets, createBudget, updateBudget, deleteBudget } from '../../lib/
 import { useAuth, useToast } from '../../App';
 import { hasPermission } from '../../lib/permissions';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import {
+  formatMoney, MoneyStat, FinancePageHeader, FinanceEmpty, RowActions,
+} from '../../components/finance';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
+
+const BUDGET_GRID = 'grid grid-cols-1 md:grid-cols-[minmax(0,1.4fr)_7rem_7rem_8rem_2.5rem] md:gap-x-3 md:items-center';
 
 const BUDGET_CATEGORIES = [
   'Tools', 'Electronics', 'Pneumatics', 'Mechanical', 'Structural',
@@ -80,9 +85,13 @@ function BudgetFormModal({ initial, onSave, onClose }) {
 }
 
 function VarianceBadge({ variance }) {
-  if (variance > 0) return <span className="text-xs text-emerald-400">+${variance.toFixed(2)} under</span>;
-  if (variance < 0) return <span className="text-xs text-red-400">${Math.abs(variance).toFixed(2)} over</span>;
-  return <span className="text-xs text-gray-500">On budget</span>;
+  if (variance > 0) {
+    return <span className="text-sm tabular-nums text-emerald-400">{formatMoney(variance)} under</span>;
+  }
+  if (variance < 0) {
+    return <span className="text-sm tabular-nums text-red-400">{formatMoney(Math.abs(variance))} over</span>;
+  }
+  return <span className="text-sm text-gray-500">On budget</span>;
 }
 
 export default function Budget() {
@@ -96,7 +105,7 @@ export default function Budget() {
   const [viewYear, setViewYear] = useState(THIS_YEAR);
   const [viewMonth, setViewMonth] = useState(THIS_MONTH);
 
-  const canEdit = hasPermission(user, 'finance.edit');
+  const canEdit = hasPermission(user, 'finance.budget.edit');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -149,20 +158,19 @@ export default function Budget() {
   const chartOpts = {
     responsive: true,
     maintainAspectRatio: false,
-    plugins: { legend: { labels: { color: '#9ca3af', font: { size: 11 } } } },
+    plugins: { legend: { labels: { color: '#9ca3af', font: { size: 12 } } } },
     scales: {
-      x: { ticks: { color: '#6b7280', font: { size: 10 } }, grid: { color: '#1f2937' } },
-      y: { ticks: { color: '#6b7280', font: { size: 10 } }, grid: { color: '#1f2937' }, beginAtZero: true },
+      x: { ticks: { color: '#9ca3af', font: { size: 11 } }, grid: { color: '#1f2937' } },
+      y: { ticks: { color: '#9ca3af', font: { size: 11 } }, grid: { color: '#1f2937' }, beginAtZero: true },
     },
   };
 
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const varianceTotal = totalAllocated - totalActual;
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-5">
-      {/* Controls */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <h2 className="text-lg font-bold text-gray-100 mr-auto">Budget</h2>
+      <FinancePageHeader title="Budget">
         <select className="input w-auto" value={viewYear} onChange={(e) => setViewYear(parseInt(e.target.value))}>
           {[THIS_YEAR - 1, THIS_YEAR, THIS_YEAR + 1].map((y) => <option key={y}>{y}</option>)}
         </select>
@@ -170,81 +178,86 @@ export default function Budget() {
           {MONTHS.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
         </select>
         {canEdit && (
-          <button onClick={() => { setEditTarget(null); setAddOpen(true); }} className="btn-primary">+ Add Budget</button>
+          <button type="button" onClick={() => { setEditTarget(null); setAddOpen(true); }} className="btn-primary">+ Add Budget</button>
         )}
+      </FinancePageHeader>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <MoneyStat label="Allocated" value={totalAllocated} color="text-indigo-300" />
+        <MoneyStat
+          label="Actual"
+          value={totalActual}
+          color={totalActual > totalAllocated ? 'text-red-400' : 'text-emerald-400'}
+        />
+        <MoneyStat
+          label="Variance"
+          value={varianceTotal}
+          color={varianceTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}
+          hint={varianceTotal > 0 ? 'under budget' : varianceTotal < 0 ? 'over budget' : 'on budget'}
+        />
       </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="card p-3 text-center">
-          <p className="text-xs text-gray-500 mb-1">Allocated</p>
-          <p className="text-xl font-bold text-indigo-300">${totalAllocated.toFixed(2)}</p>
-        </div>
-        <div className="card p-3 text-center">
-          <p className="text-xs text-gray-500 mb-1">Actual</p>
-          <p className={`text-xl font-bold ${totalActual > totalAllocated ? 'text-red-400' : 'text-emerald-400'}`}>
-            ${totalActual.toFixed(2)}
-          </p>
-        </div>
-        <div className="card p-3 text-center">
-          <p className="text-xs text-gray-500 mb-1">Variance</p>
-          <VarianceBadge variance={totalAllocated - totalActual} />
-        </div>
-      </div>
-
-      {/* Chart */}
       {visible.length > 0 && (
         <div className="card p-4">
-          <p className="text-sm text-gray-400 mb-3 font-medium">Allocated vs Actual</p>
-          <div className="h-52">
+          <p className="text-sm text-gray-300 mb-3 font-medium">Allocated vs Actual</p>
+          <div className="h-60">
             <Bar data={chartData} options={chartOpts} />
           </div>
         </div>
       )}
 
-      {/* Table */}
       {loading ? (
-        <div className="flex items-center justify-center h-32 text-gray-600">Loading…</div>
+        <div className="flex items-center justify-center h-32 text-gray-500 text-sm">Loading…</div>
       ) : visible.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-32 text-gray-600 gap-2">
-          <span className="text-3xl">📊</span>
-          <p>No budgets for {MONTHS[viewMonth - 1]} {viewYear}</p>
-        </div>
+        <FinanceEmpty
+          title={`No budgets for ${MONTHS[viewMonth - 1]} ${viewYear}`}
+          description="Add a budget category to track spending."
+        />
       ) : (
         <div className="card overflow-hidden">
-          <div className="hidden md:grid grid-cols-[1fr_120px_120px_120px_80px] gap-3 px-4 py-2 border-b border-gray-800 text-xs text-gray-600 font-medium">
+          <div className="hidden md:grid md:grid-cols-[minmax(0,1.4fr)_7rem_7rem_8rem_2.5rem] md:gap-x-3 md:items-center px-4 py-2.5 border-b border-gray-800 bg-gray-800/40 text-xs font-medium uppercase tracking-wide text-gray-500">
             <span>Category</span>
             <span className="text-right">Allocated</span>
             <span className="text-right">Actual</span>
             <span className="text-right">Variance</span>
-            <span></span>
+            <span />
           </div>
-          {visible.map((b, idx) => {
-            const pct = b.allocated > 0 ? Math.min(100, (b.actual / b.allocated) * 100) : 0;
+          {visible.map((b) => {
+            const allocated = b.allocated || 0;
+            const actual = b.actual || 0;
+            const variance = allocated - actual;
+            const pct = allocated > 0 ? Math.min(100, (actual / allocated) * 100) : 0;
             return (
-              <div key={b.id} className={`px-4 py-3 ${idx < visible.length - 1 ? 'border-b border-gray-800/60' : ''}`}>
-                <div className="flex items-center gap-3 mb-1.5">
-                  <span className="font-medium text-gray-200 flex-1">{b.category}</span>
-                  <span className="text-sm text-indigo-300 tabular-nums">${(b.allocated || 0).toFixed(2)}</span>
-                  <span className={`text-sm tabular-nums ${(b.actual || 0) > (b.allocated || 0) ? 'text-red-400' : 'text-emerald-400'}`}>
-                    ${(b.actual || 0).toFixed(2)}
+              <div key={b.id} className="px-4 py-3 border-b border-gray-800/60 last:border-0">
+                <div className={BUDGET_GRID}>
+                  <span className="font-medium text-gray-100">{b.category}</span>
+                  <span className="text-sm text-indigo-300 tabular-nums md:text-right">{formatMoney(allocated)}</span>
+                  <span className={`text-sm tabular-nums md:text-right ${actual > allocated ? 'text-red-400' : 'text-emerald-400'}`}>
+                    {formatMoney(actual)}
                   </span>
-                  <VarianceBadge variance={(b.allocated || 0) - (b.actual || 0)} />
-                  {canEdit && (
-                    <div className="flex gap-1">
-                      <button onClick={() => { setEditTarget(b); setAddOpen(true); }} className="btn-ghost text-xs py-0.5 px-1.5">✏</button>
-                      <button onClick={() => setDeleteTarget(b)} className="btn-ghost text-xs py-0.5 px-1.5 text-red-500">✕</button>
-                    </div>
-                  )}
+                  <div className="md:text-right">
+                    <VarianceBadge variance={variance} />
+                  </div>
+                  <div className="flex justify-end">
+                    {canEdit && (
+                      <RowActions
+                        actions={[
+                          { label: 'Edit', onClick: () => { setEditTarget(b); setAddOpen(true); } },
+                          { label: 'Delete', danger: true, onClick: () => setDeleteTarget(b) },
+                        ]}
+                      />
+                    )}
+                  </div>
                 </div>
-                {/* Progress bar */}
-                <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                    style={{ width: `${pct}%` }}
-                  />
+                <div className="mt-2.5">
+                  <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1 tabular-nums">{pct.toFixed(0)}% used</p>
                 </div>
-                <p className="text-xs text-gray-600 mt-0.5">{pct.toFixed(0)}% used</p>
               </div>
             );
           })}

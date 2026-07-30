@@ -16,7 +16,8 @@ import Locations from './pages/Locations';
 import ActivityLog from './pages/ActivityLog';
 import Finance from './pages/Finance';
 import CustomFields from './pages/CustomFields';
-import { hasPermission } from './lib/permissions';
+import { hasPermission, hasAnyPermission } from './lib/permissions';
+import { FINANCE_PERMISSIONS } from './lib/constants';
 import {
   getStoredUser,
   getToken,
@@ -43,8 +44,13 @@ function useToastState() {
   return { toasts, push, dismiss };
 }
 
-function PermRoute({ permission, user, children }) {
-  if (permission && !hasPermission(user, permission)) {
+function PermRoute({ permission, permissions, user, children }) {
+  const allowed = permissions
+    ? hasAnyPermission(user, permissions)
+    : permission
+      ? hasPermission(user, permission)
+      : true;
+  if (!allowed) {
     return <Navigate to="/dashboard" replace />;
   }
   return children;
@@ -129,7 +135,7 @@ export default function App() {
                       <PermRoute {...perm('approvals.manage')}><Approvals /></PermRoute>
                     } />
                     <Route path="/finance/*" element={
-                      <PermRoute {...perm('finance.view')}><Finance /></PermRoute>
+                      <PermRoute permissions={FINANCE_PERMISSIONS} user={user}><Finance /></PermRoute>
                     } />
                     <Route path="/activity" element={
                       <PermRoute {...perm('audit.view')}><ActivityLog /></PermRoute>

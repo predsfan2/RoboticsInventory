@@ -5,7 +5,7 @@
 'use strict';
 
 const fs = require('fs');
-const { ROLE_DEFAULT_PERMISSIONS } = require('./permissions');
+const { ROLE_DEFAULT_PERMISSIONS, migrateFinancePermissions } = require('./permissions');
 const { hashPassword, isHashedPassword } = require('./auth');
 
 const TABLE_DEFAULTS = [
@@ -55,6 +55,12 @@ function migrateData(data) {
     if (!Array.isArray(u.permissions)) {
       u.permissions = (ROLE_DEFAULT_PERMISSIONS[u.role] || ROLE_DEFAULT_PERMISSIONS.Member).slice();
       console.log('[migration] Set default permissions for user: ' + u.name);
+    } else {
+      const before = u.permissions.slice();
+      u.permissions = migrateFinancePermissions(u.permissions);
+      if (u.permissions.length !== before.length || u.permissions.some((p, i) => p !== before[i])) {
+        console.log('[migration] Expanded legacy finance permissions for user: ' + u.name);
+      }
     }
     return u;
   });

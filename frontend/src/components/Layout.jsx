@@ -2,16 +2,18 @@ import React, { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../App';
 import { NAV_ITEMS } from '../lib/constants';
-import { hasPermission } from '../lib/permissions';
+import { hasPermission, hasAnyPermission } from '../lib/permissions';
 
 export default function Layout({ children, onOpenSearch }) {
   const { user, signOut } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
 
-  const visibleNav = NAV_ITEMS.filter((n) =>
-    !n.permission || hasPermission(user, n.permission)
-  );
+  const visibleNav = NAV_ITEMS.filter((n) => {
+    if (n.permissions) return hasAnyPermission(user, n.permissions);
+    if (n.permission) return hasPermission(user, n.permission);
+    return true;
+  });
   // Bottom nav: first 4 items only
   const mobileNav = visibleNav.slice(0, 4);
 

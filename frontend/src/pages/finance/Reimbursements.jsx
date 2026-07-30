@@ -8,6 +8,9 @@ import { useAuth, useToast } from '../../App';
 import { hasPermission } from '../../lib/permissions';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import ReceiptField from '../../components/ReceiptField';
+import {
+  formatMoney, FinancePageHeader, FinanceEmpty, RowActions,
+} from '../../components/finance';
 
 const STATUS_STYLES = {
   pending:  'bg-amber-900/60 text-amber-400 border-amber-800/50',
@@ -120,7 +123,9 @@ export default function Reimbursements() {
   const [busy, setBusy] = useState({});
   const [filterStatus, setFilterStatus] = useState('');
 
-  const isAdmin = hasPermission(user, 'finance.edit');
+  const canApprove = hasPermission(user, 'finance.reimbursements.approve')
+    || hasPermission(user, 'approvals.manage');
+  const canRequest = hasPermission(user, 'finance.reimbursements.request');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -144,62 +149,107 @@ export default function Reimbursements() {
   const filtered = filterStatus ? reimbs.filter((r) => r.status === filterStatus) : reimbs;
   const pendingCount = reimbs.filter((r) => r.status === 'pending').length;
 
-  return (
-    <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <h2 className="text-lg font-bold text-gray-100">Reimbursements</h2>
-          {pendingCount > 0 && <span className="badge bg-amber-900/60 text-amber-400 border border-amber-800/50">{pendingCount} pending</span>}
-        </div>
-        <button onClick={() => setAddOpen(true)} className="btn-primary">+ Request</button>
-      </div>
+  const filters = [
+    { key: '', label: `All (${reimbs.length})` },
+    { key: 'pending', label: `Pending (${reimbs.filter((r) => r.status === 'pending').length})` },
+    { key: 'approved', label: `Approved (${reimbs.filter((r) => r.status === 'approved').length})` },
+    { key: 'denied', label: `Denied (${reimbs.filter((r) => r.status === 'denied').length})` },
+  ];
 
-      {/* Status filter */}
-      <div className="flex gap-2 flex-wrap">
-        {['', 'pending', 'approved', 'denied'].map((s) => (
-          <button key={s} onClick={() => setFilterStatus(s)}
-            className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${filterStatus === s ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-gray-700 text-gray-500 hover:border-gray-500'}`}>
-            {s === '' ? `All (${reimbs.length})` : `${s.charAt(0).toUpperCase() + s.slice(1)} (${reimbs.filter((r) => r.status === s).length})`}
+  return (
+    <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-5">
+      <FinancePageHeader
+        title="Reimbursements"
+        badge={pendingCount > 0 ? (
+          <span className="badge bg-amber-900/60 text-amber-400 border border-amber-800/50">{pendingCount} pending</span>
+        ) : null}
+      >
+        {canRequest && (
+          <button type="button" onClick={() => setAddOpen(true)} className="btn-primary">+ Request</button>
+        )}
+      </FinancePageHeader>
+
+      <div className="inline-flex flex-wrap rounded-lg border border-gray-700 overflow-hidden">
+        {filters.map((f) => (
+          <button
+            key={f.key || 'all'}
+            type="button"
+            onClick={() => setFilterStatus(f.key)}
+            className={`px-3.5 py-2 text-sm font-medium transition-colors border-r border-gray-700 last:border-r-0 ${
+              filterStatus === f.key
+                ? 'bg-indigo-600 text-white'
+                : 'bg-gray-900 text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+            }`}
+          >
+            {f.label}
           </button>
         ))}
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center h-40 text-gray-600">Loading…</div>
+        <div className="flex items-center justify-center h-40 text-gray-500 text-sm">Loading…</div>
       ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-40 text-gray-600 gap-2"><span className="text-4xl">💸</span><p>No reimbursements</p></div>
+        <FinanceEmpty title="No reimbursements" description="Submitted requests will show up here." />
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {filtered.map((r) => (
-            <div key={r.id} className="card p-4 flex flex-col sm:flex-row sm:items-center gap-3">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <span className="font-semibold text-gray-100">${r.amount.toFixed(2)}</span>
-                  <span className={`badge border ${STATUS_STYLES[r.status] || ''}`}>{r.status}</span>
-                  {isAdmin && <span className="text-xs text-gray-500">from {r.userName}</span>}
+            <div key={r.id} className="card p-4 sm:p-5">
+              <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2.5 flex-wrap mb-1.5">
+                    <span className="text-lg font-bold text-gray-100 tabular-nums">{formatMoney(r.amount)}</span>
+                    <span className={`badge border ${STATUS_STYLES[r.status] || ''}`}>{r.status}</span>
+                    {canApprove && (
+                      <span className="text-xs text-gray-500">from {r.userName}</span>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-300 leading-relaxed">{r.reason}</p>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500 mt-3 pt-3 border-t border-gray-800/60">
+                    <span>Submitted {new Date(r.createdAt).toLocaleDateString()}</span>
+                    {r.approvedAt && (
+                      <span>
+                        {r.status === 'approved' ? 'Approved' : 'Denied'}{' '}
+                        {new Date(r.approvedAt).toLocaleDateString()}
+                        {r.approvedBy ? ` by ${r.approvedBy}` : ''}
+                      </span>
+                    )}
+                    {r.denialReason && <span>Reason: {r.denialReason}</span>}
+                    {r.receiptUrl && (
+                      <a href={r.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">
+                        Receipt{r.receiptName ? `: ${r.receiptName}` : ''}
+                      </a>
+                    )}
+                  </div>
                 </div>
-                <p className="text-sm text-gray-400">{r.reason}</p>
-                <div className="flex flex-wrap gap-x-3 text-xs text-gray-600 mt-1">
-                  <span>Submitted {new Date(r.createdAt).toLocaleDateString()}</span>
-                  {r.approvedAt && <span>{r.status === 'approved' ? '✓ Approved' : '✕ Denied'} {new Date(r.approvedAt).toLocaleDateString()} by {r.approvedBy}</span>}
-                  {r.denialReason && <span>Reason: {r.denialReason}</span>}
-                  {r.receiptUrl && (
-                    <a href={r.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">
-                      📎 {r.receiptName || 'Receipt'}
-                    </a>
+                <div className="flex gap-2 flex-shrink-0 flex-wrap items-center">
+                  {canApprove && r.status === 'pending' && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleApprove(r.id)}
+                        disabled={busy[r.id]}
+                        className="btn-primary text-sm py-1.5 px-3"
+                      >
+                        {busy[r.id] ? '…' : 'Approve'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDenyTarget(r)}
+                        disabled={busy[r.id]}
+                        className="btn-danger text-sm py-1.5 px-3"
+                      >
+                        Deny
+                      </button>
+                    </>
+                  )}
+                  {canApprove && (
+                    <RowActions
+                      actions={[
+                        { label: 'Delete', danger: true, onClick: () => setDeleteTarget(r) },
+                      ]}
+                    />
                   )}
                 </div>
-              </div>
-              <div className="flex gap-2 flex-shrink-0 flex-wrap">
-                {isAdmin && r.status === 'pending' && (
-                  <>
-                    <button onClick={() => handleApprove(r.id)} disabled={busy[r.id]} className="btn-primary text-xs py-1 px-3">{busy[r.id] ? '…' : 'Approve'}</button>
-                    <button onClick={() => setDenyTarget(r)} disabled={busy[r.id]} className="btn-danger text-xs py-1 px-3">Deny</button>
-                  </>
-                )}
-                {isAdmin && (
-                  <button onClick={() => setDeleteTarget(r)} className="btn-ghost text-xs py-1 px-2 text-red-500" title="Delete">🗑</button>
-                )}
               </div>
             </div>
           ))}
@@ -218,7 +268,7 @@ export default function Reimbursements() {
       )}
       {deleteTarget && (
         <ConfirmDialog title="Delete Reimbursement"
-          message={`Delete this $${deleteTarget.amount.toFixed(2)} request from ${deleteTarget.userName}?`}
+          message={`Delete reimbursement for ${formatMoney(deleteTarget.amount)}?`}
           confirmLabel="Delete" dangerous onConfirm={handleDelete} onCancel={() => setDeleteTarget(null)} />
       )}
     </div>
