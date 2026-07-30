@@ -235,33 +235,9 @@ router.get('/reimbursements', (req, res) => {
   res.json(reimbs);
 });
 
-router.post('/reimbursements', requireRole('Admin', 'Manager', 'Member'), (req, res) => {
-  const data  = readData();
-  const reimb = {
-    id: uuidv4(),
-    userId: req.user ? req.user.id : null,
-    userName: req.user ? req.user.name : '',
-    amount: parseFloat(req.body.amount) || 0,
-    reason: req.body.reason || '',
-    receiptUrl: req.body.receiptUrl || '',
-    receiptName: req.body.receiptName || '',
-    status: 'pending',
-    approvedBy: null, approvedAt: null, denialReason: null,
-    createdAt: new Date().toISOString(),
-  };
-  if (!data['rt:reimbursements']) data['rt:reimbursements'] = [];
-  data['rt:reimbursements'].push(reimb);
-  writeData(data);
-  res.status(201).json(reimb);
-});
+const REIMB_APPROVER_ROLES = ['Admin', 'Manager', 'Accounting Admin'];
 
-router.post('/reimbursements/:id/approve', requireRole('Admin', 'Manager'), (req, res) => {
-  const data  = readData();
-  const reimb = (data['rt:reimbursements'] || []).find((r) => r.id === req.params.id);
-  if (!reimb) return res.status(404).json({ error: 'Reimbursement not found' });
-  reimb.status     = 'approved';
-  reimb.approvedBy = req.user ? req.user.name : 'system';
-  reimb.approvedAt = new Date().toISOString();
+function pushReimbursementTransaction(data, reimb) {
   if (!data['rt:accountingTransactions']) data['rt:accountingTransactions'] = [];
   data['rt:accountingTransactions'].push({
     id: uuidv4(), type: 'Reimbursement',
@@ -270,11 +246,45 @@ router.post('/reimbursements/:id/approve', requireRole('Admin', 'Manager'), (req
     amount: reimb.amount, category: 'Reimbursement',
     receiptUrl: reimb.receiptUrl, linkedReimbursementId: reimb.id,
   });
+}
+
+router.post('/reimbursements', requireRole('Admin', 'Manager', 'Accounting Admin', 'Member'), (req, res) => {
+  const data  = readData();
+  const canAutoApprove = req.user && REIMB_APPROVER_ROLES.includes(req.user.role);
+  const reimb = {
+    id: uuidv4(),
+    userId: req.user ? req.user.id : null,
+    userName: req.user ? req.user.name : '',
+    amount: parseFloat(req.body.amount) || 0,
+    reason: req.body.reason || '',
+    receiptUrl: req.body.receiptUrl || '',
+    receiptName: req.body.receiptName || '',
+    status: canAutoApprove ? 'approved' : 'pending',
+    approvedBy: canAutoApprove ? (req.user.name || 'system') : null,
+    approvedAt: canAutoApprove ? new Date().toISOString() : null,
+    denialReason: null,
+    createdAt: new Date().toISOString(),
+  };
+  if (!data['rt:reimbursements']) data['rt:reimbursements'] = [];
+  data['rt:reimbursements'].push(reimb);
+  if (canAutoApprove) pushReimbursementTransaction(data, reimb);
+  writeData(data);
+  res.status(201).json(reimb);
+});
+
+router.post('/reimbursements/:id/approve', requireRole('Admin', 'Manager', 'Accounting Admin'), (req, res) => {
+  const data  = readData();
+  const reimb = (data['rt:reimbursements'] || []).find((r) => r.id === req.params.id);
+  if (!reimb) return res.status(404).json({ error: 'Reimbursement not found' });
+  reimb.status     = 'approved';
+  reimb.approvedBy = req.user ? req.user.name : 'system';
+  reimb.approvedAt = new Date().toISOString();
+  pushReimbursementTransaction(data, reimb);
   writeData(data);
   res.json(reimb);
 });
 
-router.post('/reimbursements/:id/deny', requireRole('Admin', 'Manager'), (req, res) => {
+router.post('/reimbursements/:id/deny', requireRole('Admin', 'Manager', 'Accounting Admin'), (req, res) => {
   const data  = readData();
   const reimb = (data['rt:reimbursements'] || []).find((r) => r.id === req.params.id);
   if (!reimb) return res.status(404).json({ error: 'Reimbursement not found' });
@@ -286,7 +296,7 @@ router.post('/reimbursements/:id/deny', requireRole('Admin', 'Manager'), (req, r
   res.json(reimb);
 });
 
-router.delete('/reimbursements/:id', requireRole('Admin', 'Manager'), (req, res) => {
+router.delete('/reimbursements/:id', requireRole('Admin', 'Manager', 'Accounting Admin'), (req, res) => {
   const data = readData();
   const idx  = (data['rt:reimbursements'] || []).findIndex((r) => r.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Reimbursement not found' });
