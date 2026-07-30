@@ -64,6 +64,159 @@ router.post('/transactions', requirePermission('finance.edit'), asyncHandler(asy
   res.status(201).json(txn);
 }));
 
+const IMPORT_TYPE_ALIASES = {
+  purchase: 'Purchase',
+  expense: 'Purchase',
+  donation: 'Donation',
+  income: 'Donation',
+  fundraiserincome: 'FundraiserIncome',
+  fundraiser: 'FundraiserIncome',
+  reimbursement: 'Reimbursement',
+};
+
+function normalizeImportType(raw) {
+  if (raw == null || String(raw).trim() === '') return null;
+  const key = String(raw).trim().toLowerCase().replace(/[\s_-]+/g, '');
+  return IMPORT_TYPE_ALIASES[key] || null;
+}
+
+function parseImportDate(raw) {
+  if (raw == null || String(raw).trim() === '') return null;
+  const s = String(raw).trim();
+  // YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const d = new Date(s + 'T00:00:00');
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  // M/D/YYYY or MM/DD/YYYY
+  const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (mdy) {
+    const month = parseInt(mdy[1], 10);
+    const day = parseInt(mdy[2], 10);
+    const year = parseInt(mdy[3], 10);
+    const d = new Date(year, month - 1, day);
+    if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) return null;
+    return d.toISOString();
+  }
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function findFundraiserByName(fundraisers, name) {
+  const needle = String(name || '').trim().toLowerCase();
+  if (!needle) return null;
+  return (fundraisers || []).find((f) => String(f.name || '').trim().toLowerCase() === needle) || null;
+}
+
+router.post('/transactions/import', requirePermission('finance.edit'), asyncHandler(async (req, res) => {
+  const rows = Array.isArray(req.body.transactions) ? req.body.transactions : null;
+  if (!rows) {
+    return res.status(400).json({ error: 'transactions array is required' });
+  }
+  if (rows.length === 0) {
+    return res.status(400).json({ error: 'No transactions to import' });
+  }
+
+  const data = readData();
+  if (!data['rt:accountingTransactions']) data['rt:accountingTransactions'] = [];
+  if (!data['rt:fundraisers']) data['rt:fundraisers'] = [];
+
+  const errors = [];
+  const prepared = [];
+
+  rows.forEach((row, index) => {
+    const type = normalizeImportType(row.type);
+    if (!type) {
+      errors.push({ index, error: `Unknown type: ${row.type || '(empty)'}` });
+      return;
+    }
+    const description = String(row.description || '').trim();
+    if (!description) {
+      errors.push({ index, error: 'Description is required' });
+      return;
+    }
+    const amount = parseFloat(row.amount);
+    if (!Number.isFinite(amount) || amount < 0) {
+      errors.push({ index, error: `Invalid amount: ${row.amount}` });
+      return;
+    }
+    const date = parseImportDate(row.date);
+    if (!date) {
+      errors.push({ index, error: `Invalid date: ${row.date || '(empty)'}` });
+      return;
+    }
+
+    const fundraiserName = String(row.fundraiser || '').trim();
+    let fundraiser = null;
+    if (type === 'FundraiserIncome' && fundraiserName) {
+      fundraiser = findFundraiserByName(data['rt:fundraisers'], fundraiserName);
+      if (!fundraiser) {
+        errors.push({ index, error: `Unknown fundraiser: ${fundraiserName}` });
+        return;
+      }
+    }
+
+    prepared.push({
+      index,
+      type,
+      date,
+      description,
+      amount,
+      category: String(row.category || '').trim() || (type === 'FundraiserIncome' && fundraiser ? 'Fundraiser' : ''),
+      receiptUrl: String(row.receiptUrl || '').trim(),
+      receiptName: String(row.receiptName || '').trim(),
+      fundraiser,
+      donor: String(row.donor || '').trim() || 'Anonymous',
+    });
+  });
+
+  if (errors.length > 0) {
+    return res.status(400).json({ error: 'Import validation failed', errors });
+  }
+
+  const created = [];
+  let linkedFundraiserDonations = 0;
+
+  for (const item of prepared) {
+    const txn = {
+      id: uuidv4(),
+      type: item.type,
+      date: item.date,
+      description: item.description,
+      amount: item.amount,
+      category: item.category,
+      receiptUrl: item.receiptUrl,
+      receiptName: item.receiptName,
+      linkedPurchaseId: null,
+      linkedGoalId: null,
+    };
+
+    if (item.fundraiser) {
+      if (!item.fundraiser.donations) item.fundraiser.donations = [];
+      item.fundraiser.donations.push({
+        id: uuidv4(),
+        donor: item.donor,
+        amount: item.amount,
+        date: item.date,
+        notes: item.description,
+      });
+      item.fundraiser.actualAmount = (item.fundraiser.actualAmount || 0) + item.amount;
+      txn.linkedFundraiserId = item.fundraiser.id;
+      linkedFundraiserDonations += 1;
+    }
+
+    data['rt:accountingTransactions'].push(txn);
+    created.push(txn);
+  }
+
+  await writeData(data);
+  res.status(201).json({
+    imported: created.length,
+    linkedFundraiserDonations,
+    transactions: created,
+  });
+}));
+
 router.put('/transactions/:id', requirePermission('finance.edit'), asyncHandler(async (req, res) => {
   const data = readData();
   const idx = (data['rt:accountingTransactions'] || []).findIndex((t) => t.id === req.params.id);

@@ -1,11 +1,14 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   getTransactions, createTransaction, updateTransaction, deleteTransaction,
-  getBalance, getPurchases, uploadReceipt,
+  importTransactions, getBalance, getPurchases, getFundraisers, uploadReceipt,
 } from '../../lib/api';
 import { useAuth, useToast } from '../../App';
 import { hasPermission } from '../../lib/permissions';
 import { TRANSACTION_TYPES, CATEGORIES } from '../../lib/constants';
+import {
+  parseCSV, validateTransactionImportRows, buildTransactionImportTemplate, downloadCSV,
+} from '../../lib/csv';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import ReceiptField from '../../components/ReceiptField';
 
@@ -130,25 +133,167 @@ function TxFormModal({ initial, purchases, onSave, onClose }) {
   );
 }
 
+function ImportCSVModal({ fundraisers, onImported, onClose }) {
+  const toast = useToast();
+  const fileRef = useRef(null);
+  const [valid, setValid] = useState([]);
+  const [errors, setErrors] = useState([]);
+  const [fileName, setFileName] = useState('');
+  const [importing, setImporting] = useState(false);
+
+  const handleDownloadTemplate = () => {
+    downloadCSV('transactions-import-template.csv', buildTransactionImportTemplate());
+  };
+
+  const handleFile = async (file) => {
+    if (!file) return;
+    setFileName(file.name);
+    try {
+      const text = await file.text();
+      const { rows } = parseCSV(text);
+      if (rows.length === 0) {
+        setValid([]);
+        setErrors([{ row: 1, error: 'CSV has no data rows' }]);
+        return;
+      }
+      const result = validateTransactionImportRows(rows, fundraisers);
+      setValid(result.valid);
+      setErrors(result.errors);
+    } catch (err) {
+      setValid([]);
+      setErrors([{ row: '?', error: err.message || 'Failed to parse CSV' }]);
+    }
+  };
+
+  const handleImport = async () => {
+    if (valid.length === 0) return;
+    setImporting(true);
+    try {
+      const payload = valid.map(({ type, date, description, amount, category, receiptUrl, fundraiser, donor }) => ({
+        type, date, description, amount, category, receiptUrl, fundraiser, donor,
+      }));
+      const result = await importTransactions(payload);
+      const linked = result.linkedFundraiserDonations || 0;
+      toast(
+        linked > 0
+          ? `Imported ${result.imported} transactions (${linked} linked to fundraisers)`
+          : `Imported ${result.imported} transactions`,
+        'success'
+      );
+      onImported();
+      onClose();
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-panel max-w-3xl p-6 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-semibold">Import Transactions CSV</h2>
+          <button onClick={onClose} className="btn-ghost">✕</button>
+        </div>
+
+        <p className="text-sm text-gray-400 mb-3">
+          One CSV for purchases, donations, fundraiser income, and reimbursements.
+          Optional <code className="text-gray-300">fundraiser</code> column links FundraiserIncome rows by name.
+        </p>
+
+        <div className="flex flex-wrap gap-2 items-center mb-4">
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(e) => handleFile(e.target.files?.[0])}
+          />
+          <button type="button" className="btn-secondary" onClick={() => fileRef.current?.click()}>
+            Choose CSV…
+          </button>
+          <button type="button" className="btn-ghost text-sm" onClick={handleDownloadTemplate}>
+            Download template
+          </button>
+          {fileName && <span className="text-xs text-gray-500 truncate">{fileName}</span>}
+        </div>
+
+        {errors.length > 0 && (
+          <div className="mb-4 rounded border border-red-900/50 bg-red-950/30 p-3">
+            <p className="text-xs font-semibold text-red-400 mb-2">{errors.length} row{errors.length === 1 ? '' : 's'} with errors</p>
+            <ul className="space-y-1 max-h-32 overflow-y-auto">
+              {errors.map((e, i) => (
+                <li key={i} className="text-xs text-red-300">Row {e.row}: {e.error}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {valid.length > 0 && (
+          <div className="card overflow-hidden mb-4">
+            <div className="px-3 py-2 border-b border-gray-800 bg-gray-800/40">
+              <p className="text-xs text-gray-400">{valid.length} valid row{valid.length === 1 ? '' : 's'} ready to import</p>
+            </div>
+            <div className="max-h-56 overflow-y-auto">
+              {valid.map((r, idx) => (
+                <div key={idx} className={`flex flex-wrap items-center gap-2 px-3 py-2 text-xs ${idx < valid.length - 1 ? 'border-b border-gray-800/60' : ''}`}>
+                  <span className="text-gray-500 tabular-nums w-20 flex-shrink-0">{r.date}</span>
+                  <span className={`badge border flex-shrink-0 ${TYPE_STYLES[r.type] || ''}`}>
+                    {r.type === 'FundraiserIncome' ? 'Fundraiser' : r.type}
+                  </span>
+                  <span className="text-gray-200 truncate flex-1 min-w-24">{r.description}</span>
+                  <span className="tabular-nums text-gray-300">${Number(r.amount).toFixed(2)}</span>
+                  {r.willLinkFundraiser ? (
+                    <span className="text-blue-400 truncate max-w-36" title={r.resolvedFundraiserName}>
+                      → {r.resolvedFundraiserName}
+                    </span>
+                  ) : r.type === 'FundraiserIncome' ? (
+                    <span className="text-gray-600">unlinked</span>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
+          <button
+            type="button"
+            disabled={importing || valid.length === 0}
+            className="btn-primary"
+            onClick={handleImport}
+          >
+            {importing ? 'Importing…' : `Import ${valid.length} valid`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Transactions() {
   const { user } = useAuth();
   const toast    = useToast();
   const [txns, setTxns]           = useState([]);
   const [purchases, setPurchases] = useState([]);
+  const [fundraisers, setFundraisers] = useState([]);
   const [balance, setBalance]     = useState(null);
   const [loading, setLoading]     = useState(true);
   const [filterType, setFilterType] = useState('');
   const [search, setSearch]         = useState('');
   const [editTarget, setEditTarget] = useState(null);
   const [addOpen, setAddOpen]       = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
   const canEdit = hasPermission(user, 'finance.edit');
 
   const load = useCallback(() => {
     setLoading(true);
-    Promise.all([getTransactions(), getBalance(), getPurchases()])
-      .then(([t, b, p]) => { setTxns(t); setBalance(b); setPurchases(p); })
+    Promise.all([getTransactions(), getBalance(), getPurchases(), getFundraisers()])
+      .then(([t, b, p, f]) => { setTxns(t); setBalance(b); setPurchases(p); setFundraisers(f); })
       .catch((e) => toast(e.message, 'error'))
       .finally(() => setLoading(false));
   }, []);
@@ -213,7 +358,10 @@ export default function Transactions() {
           {TRANSACTION_TYPES.map((t) => <option key={t}>{t}</option>)}
         </select>
         {canEdit && (
-          <button onClick={() => { setEditTarget(null); setAddOpen(true); }} className="btn-primary">+ Add</button>
+          <>
+            <button onClick={() => setImportOpen(true)} className="btn-secondary">Import CSV</button>
+            <button onClick={() => { setEditTarget(null); setAddOpen(true); }} className="btn-primary">+ Add</button>
+          </>
         )}
       </div>
 
@@ -266,6 +414,13 @@ export default function Transactions() {
       {(addOpen || editTarget) && (
         <TxFormModal initial={editTarget} purchases={purchases} onSave={handleSave}
           onClose={() => { setAddOpen(false); setEditTarget(null); }} />
+      )}
+      {importOpen && (
+        <ImportCSVModal
+          fundraisers={fundraisers}
+          onImported={load}
+          onClose={() => setImportOpen(false)}
+        />
       )}
       {deleteTarget && (
         <ConfirmDialog title="Delete Transaction" message={`Delete "${deleteTarget.description}"?`}
