@@ -5,6 +5,7 @@ import Budget from './finance/Budget';
 import SavingsGoals from './finance/SavingsGoals';
 import Reimbursements from './finance/Reimbursements';
 import Fundraisers from './finance/Fundraisers';
+import Donations from './finance/Donations';
 import Reports from './finance/Reports';
 
 const TABS = [
@@ -13,6 +14,7 @@ const TABS = [
   { id: 'goals',        label: 'Savings Goals', icon: '🎯' },
   { id: 'reimburse',    label: 'Reimbursements', icon: '💸' },
   { id: 'fundraisers',  label: 'Fundraisers',  icon: '🏆' },
+  { id: 'donations',    label: 'Donations',    icon: '🎁' },
   { id: 'reports',      label: 'Reports',      icon: '📄' },
 ];
 
@@ -57,6 +59,7 @@ export default function Finance() {
         {tab === 'goals'        && <SavingsGoals />}
         {tab === 'reimburse'    && <Reimbursements />}
         {tab === 'fundraisers'  && <Fundraisers />}
+        {tab === 'donations'    && <Donations />}
         {tab === 'reports'      && <Reports />}
       </div>
     </div>
