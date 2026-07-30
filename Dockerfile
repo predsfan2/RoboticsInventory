@@ -1,15 +1,19 @@
 # ── Stage 1: Build frontend ───────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 
-WORKDIR /app
+WORKDIR /app/frontend
 
-COPY frontend/package.json frontend/package-lock.json* ./frontend/
-# DevDependencies (vite, etc.) are required for the frontend build stage.
-# --include=dev ensures they install even if NODE_ENV=production is set.
-RUN cd frontend && (npm ci --include=dev || npm install --include=dev)
+# Keep NODE_ENV unset/development during install so build tools are present.
+# (vite / plugin-react / tailwind are also listed under dependencies for Docker.)
+ENV NODE_ENV=development
 
-COPY frontend/ ./frontend/
-RUN cd frontend && npm run build
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm ci
+
+COPY frontend/ ./
+RUN test -x node_modules/.bin/vite \
+  && npm run build \
+  && test -f /app/public/index.html
 
 
 # ── Stage 2: Production image ─────────────────────────────────────────────────

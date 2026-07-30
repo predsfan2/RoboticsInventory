@@ -46,11 +46,19 @@ bash fix-line-endings.sh
 ### 4. Build and run
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
 The first run builds the frontend and installs all dependencies — this takes 2–4 minutes.
 Subsequent starts are instant (image is cached).
+
+If a rebuild fails with `vite: not found`, pull the latest code and force a clean build:
+
+```bash
+git pull
+docker compose build --no-cache
+docker compose up -d
+```
 
 ### 5. Open the app
 
