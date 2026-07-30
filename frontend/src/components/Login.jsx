@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../App';
-import { login, getUsers } from '../lib/api';
+import { login, getUsernames } from '../lib/api';
 
 export default function Login() {
   const { signIn } = useAuth();
@@ -11,16 +11,11 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Load user list (names only – no passwords exposed)
-    fetch('/api/users')
-      .then((r) => r.json())
+    getUsernames()
       .then((data) => {
         if (Array.isArray(data)) setUsers(data);
       })
-      .catch(() => {
-        // Fallback: show name input instead
-        setUsers([]);
-      });
+      .catch(() => setUsers([]));
   }, []);
 
   const handleSubmit = async (e) => {
@@ -31,7 +26,7 @@ export default function Login() {
     const name = selected ? selected.name : e.target.nameInput?.value;
     try {
       const res = await login(name, password);
-      signIn(res.user);
+      signIn(res.user, res.token);
     } catch (err) {
       setError(err.message || 'Invalid credentials');
     } finally {
@@ -42,6 +37,7 @@ export default function Login() {
   const ROLE_COLORS = {
     Admin: 'border-red-700 bg-red-950/40',
     Manager: 'border-amber-700 bg-amber-950/40',
+    'Accounting Admin': 'border-blue-700 bg-blue-950/40',
     Member: 'border-indigo-700 bg-indigo-950/40',
     Viewer: 'border-gray-700 bg-gray-800/40',
   };
@@ -49,6 +45,7 @@ export default function Login() {
   const ROLE_ICON = {
     Admin: '👑',
     Manager: '🔑',
+    'Accounting Admin': '💹',
     Member: '👤',
     Viewer: '👁',
   };
@@ -56,15 +53,13 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
       <div className="w-full max-w-lg">
-        {/* Header */}
         <div className="text-center mb-8">
-          <div className="text-6xl mb-3">🤖</div>
+          <div className="text-6xl mb-3" aria-hidden="true">🤖</div>
           <h1 className="text-3xl font-bold text-white">Robotics Inventory</h1>
           <p className="text-gray-400 mt-1">Sign in to continue</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* User tiles */}
           {users.length > 0 ? (
             <div>
               <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Select your account</p>
@@ -80,7 +75,7 @@ export default function Login() {
                         : (ROLE_COLORS[u.role] || ROLE_COLORS.Member) + ' hover:border-opacity-80'
                     }`}
                   >
-                    <span className="text-2xl">{ROLE_ICON[u.role] || '👤'}</span>
+                    <span className="text-2xl" aria-hidden="true">{ROLE_ICON[u.role] || '👤'}</span>
                     <span className="text-gray-200 truncate w-full text-center">{u.name}</span>
                     <span className="text-xs text-gray-500">{u.role}</span>
                   </button>
@@ -94,7 +89,6 @@ export default function Login() {
             </div>
           )}
 
-          {/* Password */}
           {(selected || users.length === 0) && (
             <div>
               <label className="block text-sm text-gray-400 mb-1">
@@ -127,9 +121,11 @@ export default function Login() {
           </button>
         </form>
 
-        <p className="text-center text-xs text-gray-600 mt-6">
-          Default admin: <span className="text-gray-500">Admin / admin123</span>
-        </p>
+        {import.meta.env.DEV && (
+          <p className="text-center text-xs text-gray-600 mt-6">
+            Dev default: <span className="text-gray-500">Admin / admin123</span>
+          </p>
+        )}
       </div>
     </div>
   );

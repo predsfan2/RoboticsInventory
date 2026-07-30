@@ -1,40 +1,26 @@
+'use strict';
+
 const express = require('express');
 const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const { readData, writeData } = require('../utils/storage');
+const { requirePermission } = require('../utils/auth');
+const { activityLog } = require('../utils/logging');
 
-function requireRole(...roles) {
-  return (req, res, next) => {
-    if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-    if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
-    next();
-  };
+const MAX_UNITS = 500;
+
+function asyncHandler(fn) {
+  return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 }
 
-function activityLog(data, action, user, itemId, itemName, details) {
-  if (!data['rt:activityLog']) data['rt:activityLog'] = [];
-  data['rt:activityLog'].push({
-    id: uuidv4(),
-    action,
-    userName: user ? user.name : 'system',
-    userId: user ? user.id : null,
-    itemId,
-    itemName,
-    details,
-    date: new Date().toISOString(),
-  });
-}
-
-// ── GET /api/purchases ────────────────────────────────────────────────────────
-router.get('/', (req, res) => {
+router.get('/', requirePermission('purchases.view'), (req, res) => {
   const data = readData();
   let purchases = data['rt:purchases'] || [];
   if (req.query.status) purchases = purchases.filter((p) => p.status === req.query.status);
   res.json(purchases);
 });
 
-// ── POST /api/purchases ───────────────────────────────────────────────────────
-router.post('/', requireRole('Admin', 'Manager', 'Member'), (req, res) => {
+router.post('/', requirePermission('purchases.edit'), asyncHandler(async (req, res) => {
   const data = readData();
   const purchase = {
     id: uuidv4(),
@@ -48,49 +34,46 @@ router.post('/', requireRole('Admin', 'Manager', 'Member'), (req, res) => {
     requester: req.body.requester || (req.user ? req.user.name : ''),
     date: req.body.date || new Date().toISOString(),
     createdBy: req.user ? req.user.id : null,
+    linkedItemId: req.body.linkedItemId || null,
   };
 
   if (!data['rt:purchases']) data['rt:purchases'] = [];
   data['rt:purchases'].push(purchase);
   activityLog(data, 'CREATE_PURCHASE', req.user, null, purchase.name, `Purchase request created: "${purchase.name}"`);
-  writeData(data);
+  await writeData(data);
   res.status(201).json(purchase);
-});
+}));
 
-// ── GET /api/purchases/:id ────────────────────────────────────────────────────
-router.get('/:id', (req, res) => {
+router.get('/:id', requirePermission('purchases.view'), (req, res) => {
   const data = readData();
   const p = (data['rt:purchases'] || []).find((x) => x.id === req.params.id);
   if (!p) return res.status(404).json({ error: 'Purchase not found' });
   res.json(p);
 });
 
-// ── PUT /api/purchases/:id ────────────────────────────────────────────────────
-router.put('/:id', requireRole('Admin', 'Manager'), (req, res) => {
+router.put('/:id', requirePermission('purchases.edit'), asyncHandler(async (req, res) => {
   const data = readData();
   const idx = (data['rt:purchases'] || []).findIndex((x) => x.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Purchase not found' });
 
-  const allowed = ['name', 'quantity', 'category', 'priority', 'link', 'status', 'notes', 'requester', 'date'];
+  const allowed = ['name', 'quantity', 'category', 'priority', 'link', 'status', 'notes', 'requester', 'date', 'linkedItemId'];
   for (const key of allowed) {
     if (req.body[key] !== undefined) data['rt:purchases'][idx][key] = req.body[key];
   }
-  writeData(data);
+  await writeData(data);
   res.json(data['rt:purchases'][idx]);
-});
+}));
 
-// ── DELETE /api/purchases/:id ─────────────────────────────────────────────────
-router.delete('/:id', requireRole('Admin', 'Manager'), (req, res) => {
+router.delete('/:id', requirePermission('purchases.edit'), asyncHandler(async (req, res) => {
   const data = readData();
   const idx = (data['rt:purchases'] || []).findIndex((x) => x.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Purchase not found' });
   data['rt:purchases'].splice(idx, 1);
-  writeData(data);
+  await writeData(data);
   res.json({ success: true });
-});
+}));
 
-// ── PATCH /api/purchases/:id/status ──────────────────────────────────────────
-router.patch('/:id/status', requireRole('Admin', 'Manager'), (req, res) => {
+router.patch('/:id/status', requirePermission('purchases.edit'), asyncHandler(async (req, res) => {
   const data = readData();
   const purchase = (data['rt:purchases'] || []).find((x) => x.id === req.params.id);
   if (!purchase) return res.status(404).json({ error: 'Purchase not found' });
@@ -98,30 +81,39 @@ router.patch('/:id/status', requireRole('Admin', 'Manager'), (req, res) => {
   const oldStatus = purchase.status;
   purchase.status = req.body.status || purchase.status;
 
-  // Auto-create item or add stock when status becomes "Received"
   if (purchase.status === 'Received' && oldStatus !== 'Received') {
     if (!data['rt:items']) data['rt:items'] = [];
-    const existing = data['rt:items'].find(
-      (i) => i.name.toLowerCase() === purchase.name.toLowerCase()
-    );
+    let existing = null;
+    if (purchase.linkedItemId) {
+      existing = data['rt:items'].find((i) => i.id === purchase.linkedItemId) || null;
+    }
+    if (!existing) {
+      existing = data['rt:items'].find(
+        (i) => i.name.toLowerCase() === purchase.name.toLowerCase()
+      ) || null;
+    }
+
     if (existing) {
-      existing.totalQty += purchase.quantity;
+      const addQty = Math.min(purchase.quantity, MAX_UNITS - (existing.totalQty || 0));
+      existing.totalQty = (existing.totalQty || 0) + addQty;
       existing.quantityLog.push({
         id: uuidv4(),
-        change: purchase.quantity,
+        change: addQty,
         reason: `Purchase received (purchase ID: ${purchase.id})`,
         userName: req.user ? req.user.name : 'system',
         date: new Date().toISOString(),
       });
       activityLog(data, 'PURCHASE_RECEIVED', req.user, existing.id, existing.name,
-        `Stock increased by ${purchase.quantity} from purchase "${purchase.name}"`);
+        `Stock increased by ${addQty} from purchase "${purchase.name}"`);
+      purchase.linkedItemId = existing.id;
     } else {
+      const qty = Math.min(purchase.quantity, MAX_UNITS);
       const newItem = {
         id: uuidv4(),
         name: purchase.name,
         itemNumber: '',
         category: purchase.category || '',
-        totalQty: purchase.quantity,
+        totalQty: qty,
         condition: 'New',
         currentLocation: '',
         currentPerson: '',
@@ -140,7 +132,6 @@ router.patch('/:id/status', requireRole('Admin', 'Manager'), (req, res) => {
       };
       data['rt:items'].push(newItem);
 
-      // Generate units if qty > 1
       if (newItem.totalQty > 1) {
         if (!data['rt:units']) data['rt:units'] = [];
         for (let i = 1; i <= newItem.totalQty; i++) {
@@ -157,12 +148,12 @@ router.patch('/:id/status', requireRole('Admin', 'Manager'), (req, res) => {
       }
       activityLog(data, 'PURCHASE_RECEIVED', req.user, newItem.id, newItem.name,
         `New item "${newItem.name}" created from purchase`);
+      purchase.linkedItemId = newItem.id;
     }
-    purchase.linkedItemId = existing ? existing.id : data['rt:items'][data['rt:items'].length - 1].id;
   }
 
-  writeData(data);
+  await writeData(data);
   res.json(purchase);
-});
+}));
 
 module.exports = router;

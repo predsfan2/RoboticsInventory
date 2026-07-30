@@ -172,6 +172,7 @@ export const NAV_ITEMS = [
   { path: '/approvals',   label: 'Approvals',   icon: '✅', permission: 'approvals.manage' },
   { path: '/finance',     label: 'Finance',     icon: '💰', permission: 'finance.view' },
   { path: '/activity',    label: 'Activity',    icon: '📜', permission: 'audit.view' },
-  { path: '/team',        label: 'Team',        icon: '👥', permission: 'admin.users' },
-  { path: '/locations',   label: 'Locations',   icon: '🗺',  permission: 'admin.locations' },
+  { path: '/team',           label: 'Team',           icon: '👥', permission: 'admin.users' },
+  { path: '/custom-fields',  label: 'Custom Fields',  icon: '🧩', permission: 'admin.users' },
+  { path: '/locations',      label: 'Locations',      icon: '🗺',  permission: 'admin.locations' },
 ];

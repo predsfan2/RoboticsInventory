@@ -15,16 +15,23 @@ import Team from './pages/Team';
 import Locations from './pages/Locations';
 import ActivityLog from './pages/ActivityLog';
 import Finance from './pages/Finance';
+import CustomFields from './pages/CustomFields';
 import { hasPermission } from './lib/permissions';
+import {
+  getStoredUser,
+  getToken,
+  setSession,
+  clearSession,
+  setUnauthorizedHandler,
+  logout as apiLogout,
+} from './lib/api';
 
-// ── Contexts ──────────────────────────────────────────────────────────────────
 export const AuthContext = createContext(null);
 export const ToastContext = createContext(null);
 
 export function useAuth() { return useContext(AuthContext); }
 export function useToast() { return useContext(ToastContext); }
 
-// ── Toast state ───────────────────────────────────────────────────────────────
 function useToastState() {
   const [toasts, setToasts] = useState([]);
   const push = useCallback((message, type = 'info', duration = 3500) => {
@@ -36,7 +43,6 @@ function useToastState() {
   return { toasts, push, dismiss };
 }
 
-// ── PermRoute — renders children only if user has the permission ──────────────
 function PermRoute({ permission, user, children }) {
   if (permission && !hasPermission(user, permission)) {
     return <Navigate to="/dashboard" replace />;
@@ -44,28 +50,37 @@ function PermRoute({ permission, user, children }) {
   return children;
 }
 
-// ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const [user, setUser] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('rt_user')); } catch { return null; }
+    const stored = getStoredUser();
+    const token = getToken();
+    return stored && token ? stored : null;
   });
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const toast = useToastState();
   const navigate = useNavigate();
 
-  const signIn = useCallback((userData) => {
+  const signIn = useCallback((userData, token) => {
+    setSession(userData, token);
     setUser(userData);
-    localStorage.setItem('rt_user', JSON.stringify(userData));
     navigate('/dashboard');
   }, [navigate]);
 
-  const signOut = useCallback(() => {
+  const signOut = useCallback(async () => {
+    try { await apiLogout(); } catch (_) { /* ignore */ }
+    clearSession();
     setUser(null);
-    localStorage.removeItem('rt_user');
     navigate('/login');
   }, [navigate]);
 
-  // Ctrl+K global search
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      clearSession();
+      setUser(null);
+      navigate('/login');
+    });
+  }, [navigate]);
+
   useEffect(() => {
     const handler = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
@@ -95,7 +110,6 @@ export default function App() {
                 <Layout onOpenSearch={() => setGlobalSearchOpen(true)}>
                   <Routes>
                     <Route path="/dashboard" element={<Dashboard />} />
-
                     <Route path="/inventory" element={
                       <PermRoute {...perm('inventory.view')}><Inventory /></PermRoute>
                     } />
@@ -123,10 +137,12 @@ export default function App() {
                     <Route path="/team" element={
                       <PermRoute {...perm('admin.users')}><Team /></PermRoute>
                     } />
+                    <Route path="/custom-fields" element={
+                      <PermRoute {...perm('admin.users')}><CustomFields /></PermRoute>
+                    } />
                     <Route path="/locations" element={
                       <PermRoute {...perm('admin.locations')}><Locations /></PermRoute>
                     } />
-
                     <Route path="*" element={<Navigate to="/dashboard" />} />
                   </Routes>
                 </Layout>

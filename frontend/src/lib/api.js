@@ -1,20 +1,42 @@
 const BASE = '/api';
 
-function getUser() {
+const TOKEN_KEY = 'rt_token';
+const USER_KEY = 'rt_user';
+
+export function getStoredUser() {
   try {
-    return JSON.parse(localStorage.getItem('rt_user') || 'null');
+    return JSON.parse(localStorage.getItem(USER_KEY) || 'null');
   } catch {
     return null;
   }
 }
 
+export function getToken() {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setSession(user, token) {
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearSession() {
+  localStorage.removeItem(USER_KEY);
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+let onUnauthorized = null;
+export function setUnauthorizedHandler(fn) {
+  onUnauthorized = fn;
+}
+
 async function request(method, path, body, isFormData = false) {
-  const user = getUser();
+  const token = getToken();
   const headers = {};
-  if (user) headers['X-User-Id'] = user.id;
+  if (token) headers.Authorization = `Bearer ${token}`;
   if (!isFormData) headers['Content-Type'] = 'application/json';
 
-  const opts = { method, headers };
+  const opts = { method, headers, credentials: 'include' };
   if (body !== undefined) {
     opts.body = isFormData ? body : JSON.stringify(body);
   }
@@ -23,6 +45,10 @@ async function request(method, path, body, isFormData = false) {
   const text = await res.text();
   let data;
   try { data = JSON.parse(text); } catch { data = { message: text }; }
+
+  if (res.status === 401 && onUnauthorized) {
+    onUnauthorized();
+  }
 
   if (!res.ok) {
     const err = new Error(data?.error || data?.message || `HTTP ${res.status}`);
@@ -42,6 +68,8 @@ export const api = {
 
 // Auth
 export const login = (name, password) => api.post('/auth/login', { name, password });
+export const logout = () => api.post('/auth/logout');
+export const getUsernames = () => api.get('/auth/usernames');
 
 // Items
 export const getItems = () => api.get('/items');
@@ -75,6 +103,7 @@ export const setPurchaseStatus = (id, status) => api.patch(`/purchases/${id}/sta
 // Borrows
 export const getBorrows = () => api.get('/borrows');
 export const createBorrow = (body) => api.post('/borrows', body);
+export const updateBorrow = (id, body) => api.put(`/borrows/${id}`, body);
 export const returnBorrow = (id) => api.post(`/borrows/${id}/return`);
 export const deleteBorrow = (id) => api.del(`/borrows/${id}`);
 
@@ -92,7 +121,12 @@ export const deleteBudget = (id) => api.del(`/budgets/${id}`);
 
 export const getGoals = () => api.get('/goals');
 export const createGoal = (body) => api.post('/goals', body);
-export const addFundsToGoal = (id, amount) => api.post(`/goals/${id}/add-funds`, { amount });
+export const updateGoal = (id, body) => api.put(`/goals/${id}`, body);
+export const deleteGoal = (id) => api.del(`/goals/${id}`);
+export const addFundsToGoal = (id, amount, description) =>
+  api.post(`/goals/${id}/add-funds`, { amount, description });
+export const linkTransactionToGoal = (id, transactionId, description) =>
+  api.post(`/goals/${id}/link-transaction`, { transactionId, description });
 
 export const getReimbursements = () => api.get('/reimbursements');
 export const createReimbursement = (body) => api.post('/reimbursements', body);
@@ -104,6 +138,8 @@ export const uploadReceipt = (base64, name, mimeType) =>
 
 export const getFundraisers = () => api.get('/fundraisers');
 export const createFundraiser = (body) => api.post('/fundraisers', body);
+export const updateFundraiser = (id, body) => api.put(`/fundraisers/${id}`, body);
+export const deleteFundraiser = (id) => api.del(`/fundraisers/${id}`);
 export const addDonation = (id, body) => api.post(`/fundraisers/${id}/donations`, body);
 export const addQuickTotal = (id, body) => api.post(`/fundraisers/${id}/quick-total`, body);
 

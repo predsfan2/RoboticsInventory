@@ -59,7 +59,14 @@ http://localhost:3000
 ```
 
 Default admin account: **Admin / admin123**
-Change this password immediately via Admin → Team after first login.
+Change this password immediately via Team after first login.
+
+Set a strong `SESSION_SECRET` (16+ characters) before any real deployment:
+
+```bash
+export SESSION_SECRET="$(openssl rand -hex 32)"
+docker compose up -d
+```
 
 ---
 
@@ -146,9 +153,12 @@ All configuration is via environment variables (set in `docker-compose.yml` or a
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PORT` | `3000` | Port the server listens on |
+| `PORT` | `3000` (Docker) / `3001` (local) | Port the server listens on |
 | `DATA_DIR` | `./backend/data` | Directory for `data.json` and uploads |
 | `NODE_ENV` | `development` | Set to `production` in Docker |
+| `SESSION_SECRET` | weak dev default | **Required in production** — signs auth JWTs |
+| `CORS_ORIGIN` | allow all | Comma-separated allowed origins (optional) |
+| `TOKEN_TTL` | `7d` | JWT lifetime |
 
 ### Using a .env file
 
@@ -158,19 +168,22 @@ Create `.env` in the project root:
 PORT=3000
 DATA_DIR=/app/backend/data
 NODE_ENV=production
+SESSION_SECRET=replace-with-a-long-random-string
 ```
 
 ---
 
 ## Roles
 
-| Role | Permissions |
-|------|-------------|
-| **Admin** | Full access — users, locations, items, accounting, audit |
-| **Manager** | Approve moves/reimbursements, manage purchases, view accounting |
-| **Accounting Admin** | Access to Finance section only |
-| **Member** | Request moves, borrow items, submit reimbursements, comment |
-| **Viewer** | Read-only access to inventory |
+| Role | Default access |
+|------|----------------|
+| **Admin** | Full access (bypasses permission checks) |
+| **Manager** | Inventory edit, approvals, purchases, finance, audit |
+| **Accounting Admin** | Finance view/edit, inventory/purchases view, audit |
+| **Member** | Inventory view, move requests, purchases, borrows |
+| **Viewer** | Read-only inventory / purchases / borrows |
+
+Granular permissions can be customized per user on the **Team** page. Custom field definitions are managed under **Custom Fields**.
 
 ---
 

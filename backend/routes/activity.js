@@ -1,20 +1,14 @@
+'use strict';
+
 const express = require('express');
 const router = express.Router();
 const { readData } = require('../utils/storage');
+const { requirePermission } = require('../utils/auth');
+const { hasPermission } = require('../utils/permissions');
 
-function requireRole(...roles) {
-  return (req, res, next) => {
-    if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-    if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
-    next();
-  };
-}
-
-// ── GET /api/activity ─────────────────────────────────────────────────────────
-// Query params: page, limit, action, userId, itemId, search
-router.get('/', requireRole('Admin', 'Manager', 'Member'), (req, res) => {
+router.get('/', requirePermission('audit.view', 'inventory.view'), (req, res) => {
   const data = readData();
-  let logs = [...(data['rt:activityLog'] || [])].reverse(); // newest first
+  let logs = [...(data['rt:activityLog'] || [])].reverse();
 
   if (req.query.action) logs = logs.filter((l) => l.action === req.query.action);
   if (req.query.userId) logs = logs.filter((l) => l.userId === req.query.userId);
@@ -30,8 +24,8 @@ router.get('/', requireRole('Admin', 'Manager', 'Member'), (req, res) => {
     );
   }
 
-  // Members only see their own activity
-  if (req.user && req.user.role === 'Member') {
+  // Without full audit.view, only show own activity
+  if (req.user && !hasPermission(req.user, 'audit.view')) {
     logs = logs.filter((l) => l.userId === req.user.id);
   }
 
