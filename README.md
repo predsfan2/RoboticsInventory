@@ -52,7 +52,8 @@ docker compose up -d --build
 The first run builds the frontend and installs all dependencies — this takes 2–4 minutes.
 Subsequent starts are instant (image is cached).
 
-If a rebuild fails with `vite: not found`, pull the latest code and force a clean build:
+If a rebuild fails with `vite: not found`, or the container exits with
+`EACCES` writing `/app/backend/data`, pull the latest code and force a clean build:
 
 ```bash
 git pull
@@ -60,6 +61,8 @@ docker compose build --no-cache
 docker compose up -d
 ```
 
+The image entrypoint fixes ownership on the `inventory-data` volume so the
+non-root app user can write `data.json` and uploads.
 ### 5. Open the app
 
 ```
