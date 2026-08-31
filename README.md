@@ -173,7 +173,7 @@ All configuration is via environment variables (set in `docker-compose.yml` or a
 | `HUB_PUBLIC_URL` | request origin | Public HTTPS origin for Hub pairing (`verification_uri`) |
 | `HUB_TAILSCALE_URL` | — | Tailscale origin (used if public URL is unset) |
 | `HUB_JWT_SECRET` | `SESSION_SECRET` | Signs Homelab Hub access tokens |
-| `HUB_PAIRING_NETWORK` | `private_only` | `private_only` or `public_allowed` — pairing from the public internet |
+| `HUB_PAIRING_NETWORK` | `public_allowed` | `public_allowed` (default) or `private_only` — whether phones may start pairing from the public internet |
 
 Homelab Hub (Android native UI, no WebView) is documented in [HUB.md](./HUB.md). If the phone shows `Expected start of the object '{', but had '<'`, the URL is returning HTML (often Cloudflare Access) instead of `GET /hub/v1/hello` JSON — see the troubleshooting section there.
 
@@ -188,7 +188,7 @@ NODE_ENV=production
 SESSION_SECRET=replace-with-a-long-random-string
 HUB_PUBLIC_URL=https://inventory.example.com
 HUB_TAILSCALE_URL=https://inventory.tail123.ts.net
-HUB_PAIRING_NETWORK=private_only
+HUB_PAIRING_NETWORK=public_allowed
 ```
 
 ---

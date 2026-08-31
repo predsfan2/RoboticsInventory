@@ -83,8 +83,8 @@ export default function HubPair() {
     <div className="p-4 md:p-6 max-w-4xl mx-auto">
       <h1 className="text-xl font-bold text-gray-100 mb-1">Hub devices</h1>
       <p className="text-sm text-gray-500 mb-6">
-        Approve a code shown on Homelab Hub to pair a phone. Pairing is private-network only unless
-        you set <code className="text-gray-300">HUB_PAIRING_NETWORK=public_allowed</code>.
+        Approve a code shown on Homelab Hub to pair a phone. Phones can start pairing from the
+        public URL; only an admin (or anyone with Hub devices permission) can approve.
       </p>
 
       <div className="card p-4 mb-6">

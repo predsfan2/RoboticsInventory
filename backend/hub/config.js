@@ -5,8 +5,8 @@ const APP_NAME = 'Robotics Inventory';
 const APP_VERSION = require('../package.json').version;
 
 function pairingNetwork() {
-  const raw = String(process.env.HUB_PAIRING_NETWORK || 'private_only').trim().toLowerCase();
-  return raw === 'public_allowed' ? 'public_allowed' : 'private_only';
+  const raw = String(process.env.HUB_PAIRING_NETWORK || 'public_allowed').trim().toLowerCase();
+  return raw === 'private_only' ? 'private_only' : 'public_allowed';
 }
 
 function getHubJwtSecret() {
