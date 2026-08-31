@@ -222,6 +222,7 @@ export const NAV_ITEMS = [
   { path: '/finance',     label: 'Finance',     icon: '💰', permissions: FINANCE_PERMISSIONS },
   { path: '/activity',    label: 'Activity',    icon: '📜', permission: 'audit.view' },
   { path: '/team',           label: 'Team',           icon: '👥', permission: 'admin.users' },
+  { path: '/hub/pair',       label: 'Hub devices',    icon: '📱', permission: 'admin.users' },
   { path: '/custom-fields',  label: 'Custom Fields',  icon: '🧩', permission: 'admin.users' },
   { path: '/locations',      label: 'Locations',      icon: '🗺',  permission: 'admin.locations' },
 ];

@@ -20,6 +20,7 @@ const {
   clearAuthCookie,
 } = require('./utils/auth');
 const { ensureUploadsDir } = require('./utils/uploads');
+const { mountHub } = require('./hub');
 
 const DATA_FILE = path.join(DATA_DIR, 'data.json');
 const SEED_PATHS = [
@@ -61,7 +62,7 @@ async function initializeAndMigrate() {
   }
 }
 
-function startServer() {
+function createApp() {
   const app = express();
   const isProd = process.env.NODE_ENV === 'production';
 
@@ -168,6 +169,8 @@ function startServer() {
   app.use('/api/audit', require('./routes/audit'));
   app.use('/api/activity', require('./routes/activity'));
 
+  mountHub(app);
+
   const UPLOADS_DIR = ensureUploadsDir();
   app.use('/uploads', requireAuth, (req, res, next) => {
     // Force download for non-images to reduce XSS risk
@@ -191,26 +194,38 @@ function startServer() {
   if (fs.existsSync(PUBLIC_DIR)) {
     app.use(express.static(PUBLIC_DIR));
     app.get('*', (req, res, next) => {
-      if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
+      if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path.startsWith('/hub/v1')) {
         return next();
       }
       res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
     });
   }
 
-  app.use((err, _req, res, _next) => {
+  app.use((err, req, res, _next) => {
     console.error(err.stack || err);
     const status = err.status || 500;
+    if (req.path && req.path.startsWith('/hub/')) {
+      const message = isProd && status === 500
+        ? 'Internal server error'
+        : (err.message || 'Internal server error');
+      return res.status(status).json({ error: { code: 'internal', message } });
+    }
     const message = isProd && status === 500
       ? 'Internal server error'
       : (err.message || 'Internal server error');
     res.status(status).json({ error: message });
   });
 
+  return app;
+}
+
+function startServer() {
+  const app = createApp();
   const PORT = process.env.PORT || 3001;
   const server = app.listen(PORT, () => {
     console.log('Robotics inventory backend running on http://localhost:' + PORT);
-    if (!fs.existsSync(PUBLIC_DIR)) {
+    const publicDir = path.join(__dirname, '..', 'public');
+    if (!fs.existsSync(publicDir)) {
       console.log('  (frontend not built — run `npm run build` in frontend/ to serve the SPA)');
     }
   });
@@ -223,14 +238,16 @@ function startServer() {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 
-  return app;
+  return server;
 }
 
-initializeAndMigrate()
-  .then(startServer)
-  .catch((err) => {
-    console.error('[init] Fatal error during initialisation:', err);
-    process.exit(1);
-  });
+if (require.main === module) {
+  initializeAndMigrate()
+    .then(startServer)
+    .catch((err) => {
+      console.error('[init] Fatal error during initialisation:', err);
+      process.exit(1);
+    });
+}
 
-module.exports = { initializeAndMigrate };
+module.exports = { initializeAndMigrate, createApp, startServer };
