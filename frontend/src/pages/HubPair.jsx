@@ -90,7 +90,7 @@ export default function HubPair() {
       <div className="card p-4 mb-6">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Approve pairing code</p>
         <form
-          className="flex flex-col sm:flex-row gap-2"
+          className="flex flex-col gap-2"
           onSubmit={(e) => {
             e.preventDefault();
             if (code.trim()) handleApprove(code.trim().toUpperCase());
@@ -109,7 +109,7 @@ export default function HubPair() {
               <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
             ))}
           </select>
-          <button type="submit" disabled={busy || !code.trim()} className="btn-primary">Approve</button>
+          <button type="submit" disabled={busy || !code.trim()} className="btn-primary w-full sm:w-auto">Approve</button>
         </form>
       </div>
 
