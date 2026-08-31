@@ -9,7 +9,7 @@ Dependencies are installed during the environment `install` step (`npm ci` in `b
 - Backend: http://localhost:3001 (`npm run dev --prefix backend`)
 - Frontend: http://localhost:5173 (`npm run dev --prefix frontend`) — Vite proxies `/api` and `/uploads` to the backend
 
-Smoke-check the API with `GET /api/health`. There is no automated test suite.
+Smoke-check the API with `GET /api/health`. Hub protocol tests: `npm test --prefix backend`.
 
 On first backend start, `seed-data.json` is copied to `backend/data/data.json` and an idempotent migration runs. Default seed login is **Admin** / **admin123**.
 

@@ -89,10 +89,15 @@ function createRouter() {
   const tokenLimit = hubLimiter(40);
   const actionLimit = hubLimiter(80);
 
+  router.use((_req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    res.set('X-Content-Type-Options', 'nosniff');
+    next();
+  });
   router.use(limitHubBody);
 
   router.get('/hello', (_req, res) => {
-    res.json({
+    res.type('json').json({
       protocol: 'hub/v1',
       app_id: APP_ID,
       name: APP_NAME,
@@ -324,6 +329,10 @@ function createRouter() {
     } catch (err) {
       return hubError(res, err);
     }
+  });
+
+  router.use((_req, res) => {
+    sendError(res, 404, 'not_found', 'Unknown Hub endpoint');
   });
 
   return router;

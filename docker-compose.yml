@@ -11,10 +11,12 @@ services:
       - NODE_ENV=production
       # Override with a long random string in real deployments
       - SESSION_SECRET=${SESSION_SECRET:-change-me-to-a-long-random-secret}
+      # Homelab Hub. Public URL pairing is allowed; an admin must still approve the code.
+      # If Cloudflare Access protects this host, bypass /hub/v1 (see HUB.md) or hello returns HTML.
       - HUB_PUBLIC_URL=${HUB_PUBLIC_URL:-}
       - HUB_TAILSCALE_URL=${HUB_TAILSCALE_URL:-}
       - HUB_JWT_SECRET=${HUB_JWT_SECRET:-}
-      - HUB_PAIRING_NETWORK=${HUB_PAIRING_NETWORK:-private_only}
+      - HUB_PAIRING_NETWORK=${HUB_PAIRING_NETWORK:-public_allowed}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]

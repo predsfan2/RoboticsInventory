@@ -9,10 +9,17 @@ const http = require('http');
 const crypto = require('crypto');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hub-test-'));
+const publicDir = path.join(tmp, 'public');
+fs.mkdirSync(publicDir, { recursive: true });
+fs.writeFileSync(
+  path.join(publicDir, 'index.html'),
+  '<!DOCTYPE html>\n<html><head></head><body>spa</body></html>\n'
+);
 process.env.DATA_DIR = tmp;
+process.env.PUBLIC_DIR = publicDir;
 process.env.SESSION_SECRET = 'test-session-secret-16chars';
 process.env.HUB_JWT_SECRET = 'test-hub-jwt-secret-16chr';
-process.env.HUB_PAIRING_NETWORK = 'private_only';
+process.env.HUB_PAIRING_NETWORK = 'public_allowed';
 process.env.NODE_ENV = 'test';
 process.env.PORT = '0';
 
@@ -72,13 +79,29 @@ after(async () => {
 test('GET /hub/v1/hello is public and minimal', async () => {
   const res = await request('GET', '/hub/v1/hello');
   assert.equal(res.status, 200);
+  assert.equal(typeof res.json, 'object');
+  assert.ok(!String(res.raw).trimStart().startsWith('<'));
   assert.equal(res.json.protocol, 'hub/v1');
   assert.equal(res.json.app_id, 'robotics.inventory');
   assert.equal(res.json.auth.pairing, 'device_code');
   assert.equal(res.json.needs_pairing, true);
-  assert.equal(res.json.pairing_network, 'private_only');
+  assert.equal(res.json.pairing_network, 'public_allowed');
   assert.equal(res.json.screens, undefined);
   assert.equal(res.json.devices, undefined);
+});
+
+test('unknown /hub/v1 paths return JSON 404, not SPA HTML', async () => {
+  const res = await request('GET', '/hub/v1/does-not-exist');
+  assert.equal(res.status, 404);
+  assert.equal(typeof res.json, 'object');
+  assert.ok(!String(res.raw).includes('<!DOCTYPE'));
+  assert.equal(res.json.error.code, 'not_found');
+});
+
+test('browser Hub pair page is still the SPA, not the protocol JSON 404', async () => {
+  const res = await request('GET', '/hub/pair');
+  assert.equal(res.status, 200);
+  assert.match(String(res.raw), /<!DOCTYPE html>/i);
 });
 
 test('GET /hub/v1/manifest without token is 401', async () => {
@@ -93,13 +116,29 @@ test('GET /hub/v1/data/* without token is 401', async () => {
   assert.equal(res.json.error.code, 'unauthorized');
 });
 
-test('pair/start from a public IP is rejected when private_only', async () => {
+test('pair/start from a public IP is allowed when public_allowed', async () => {
   const res = await request('POST', '/hub/v1/pair/start', {
     body: { device_name: 'Pixel', client: 'homelab-hub-android' },
     headers: { 'X-Forwarded-For': '8.8.8.8' },
   });
-  assert.equal(res.status, 403);
-  assert.equal(res.json.error.code, 'forbidden');
+  assert.equal(res.status, 200);
+  assert.equal(res.json.protocol, 'hub/v1');
+  assert.ok(res.json.pairing_session_id);
+});
+
+test('pair/start from a public IP is rejected when private_only', async () => {
+  const prev = process.env.HUB_PAIRING_NETWORK;
+  process.env.HUB_PAIRING_NETWORK = 'private_only';
+  try {
+    const res = await request('POST', '/hub/v1/pair/start', {
+      body: { device_name: 'Pixel', client: 'homelab-hub-android' },
+      headers: { 'X-Forwarded-For': '8.8.8.8' },
+    });
+    assert.equal(res.status, 403);
+    assert.equal(res.json.error.code, 'forbidden');
+  } finally {
+    process.env.HUB_PAIRING_NETWORK = prev;
+  }
 });
 
 test('pair on loopback, approve, manifest, list, action idempotency, refresh rotation', async () => {
