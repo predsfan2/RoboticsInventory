@@ -10,6 +10,8 @@ const { requirePermission } = require('../utils/auth');
 const { hasPermission } = require('../utils/permissions');
 const { auditLog, activityLog } = require('../utils/logging');
 const { saveBase64Upload, IMAGE_MIMES, INVOICE_MIMES } = require('../utils/uploads');
+const { adjustStock, updateCondition } = require('../services/inventory');
+const { sendDomainError } = require('../services/errors');
 
 const MAX_UNITS = 500;
 
@@ -120,76 +122,21 @@ router.delete('/:id', requirePermission('inventory.delete'), asyncHandler(async 
 }));
 
 router.post('/:id/stock', requirePermission('inventory.edit'), asyncHandler(async (req, res) => {
-  const data = readData();
-  const item = (data['rt:items'] || []).find((i) => i.id === req.params.id);
-  if (!item) return res.status(404).json({ error: 'Item not found' });
-
-  const change = parseInt(req.body.change, 10);
-  if (isNaN(change)) return res.status(400).json({ error: 'change must be an integer' });
-
-  const before = { totalQty: item.totalQty };
-  const nextQty = Math.max(0, item.totalQty + change);
-  if (nextQty > MAX_UNITS) return res.status(400).json({ error: `Quantity cannot exceed ${MAX_UNITS}` });
-  item.totalQty = nextQty;
-
-  const entry = {
-    id: uuidv4(),
-    change,
-    reason: req.body.reason || '',
-    userName: req.user ? req.user.name : 'system',
-    date: new Date().toISOString(),
-  };
-  item.quantityLog.push(entry);
-
-  if (!data['rt:units']) data['rt:units'] = [];
-  const existingUnits = data['rt:units'].filter((u) => u.parentId === item.id);
-
-  if (change > 0) {
-    let nextIdx = existingUnits.length + 1;
-    for (let i = 0; i < change; i++, nextIdx++) {
-      data['rt:units'].push({
-        id: `${item.id}-unit-${nextIdx}`,
-        parentId: item.id,
-        unitSku: `${item.id}-${nextIdx}`,
-        condition: item.condition,
-        conditionLog: [],
-        currentLocation: item.currentLocation,
-        currentPerson: item.currentPerson,
-      });
-    }
-  } else if (change < 0) {
-    const toRemove = Math.min(Math.abs(change), existingUnits.length);
-    const removeIds = existingUnits.slice(-toRemove).map((u) => u.id);
-    data['rt:units'] = data['rt:units'].filter((u) => !removeIds.includes(u.id));
+  try {
+    const item = await adjustStock(req.params.id, req.body || {}, req.user);
+    res.json(item);
+  } catch (err) {
+    return sendDomainError(res, err);
   }
-
-  auditLog(data, 'ADJUST_STOCK', req.user, item.id, item.name, before, { totalQty: item.totalQty });
-  activityLog(data, 'ADJUST_STOCK', req.user, item.id, item.name, `Stock adjusted by ${change}. Reason: ${entry.reason}`);
-  await writeData(data);
-  res.json(item);
 }));
 
 router.post('/:id/condition', requireConditionUpdate, asyncHandler(async (req, res) => {
-  const data = readData();
-  const item = (data['rt:items'] || []).find((i) => i.id === req.params.id);
-  if (!item) return res.status(404).json({ error: 'Item not found' });
-
-  const before = { condition: item.condition };
-  item.condition = req.body.condition || item.condition;
-
-  const entry = {
-    id: uuidv4(),
-    condition: item.condition,
-    note: req.body.note || '',
-    date: new Date().toISOString(),
-    userName: req.user ? req.user.name : 'system',
-  };
-  item.conditionLog.push(entry);
-
-  auditLog(data, 'UPDATE_CONDITION', req.user, item.id, item.name, before, { condition: item.condition });
-  activityLog(data, 'UPDATE_CONDITION', req.user, item.id, item.name, `Condition updated to "${item.condition}"`);
-  await writeData(data);
-  res.json(item);
+  try {
+    const item = await updateCondition(req.params.id, req.body || {}, req.user);
+    res.json(item);
+  } catch (err) {
+    return sendDomainError(res, err);
+  }
 }));
 
 router.post('/:id/move-request', requirePermission('moves.request'), asyncHandler(async (req, res) => {

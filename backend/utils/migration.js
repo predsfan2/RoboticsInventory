@@ -13,6 +13,7 @@ const TABLE_DEFAULTS = [
   'rt:purchases', 'rt:borrows', 'rt:moveRequests', 'rt:auditLog',
   'rt:customFields', 'rt:accountingTransactions', 'rt:budgets',
   'rt:savingsGoals', 'rt:reimbursements', 'rt:fundraisers', 'rt:activityLog',
+  'hub:devices', 'hub:pairingSessions', 'hub:refreshTokens', 'hub:idempotency',
 ];
 
 const MAX_UNITS_PER_ITEM = 500;

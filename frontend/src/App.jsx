@@ -16,6 +16,7 @@ import Locations from './pages/Locations';
 import ActivityLog from './pages/ActivityLog';
 import Finance from './pages/Finance';
 import CustomFields from './pages/CustomFields';
+import HubPair from './pages/HubPair';
 import { hasPermission, hasAnyPermission } from './lib/permissions';
 import { FINANCE_PERMISSIONS } from './lib/constants';
 import {
@@ -142,6 +143,9 @@ export default function App() {
                     } />
                     <Route path="/team" element={
                       <PermRoute {...perm('admin.users')}><Team /></PermRoute>
+                    } />
+                    <Route path="/hub/pair" element={
+                      <PermRoute {...perm('admin.users')}><HubPair /></PermRoute>
                     } />
                     <Route path="/custom-fields" element={
                       <PermRoute {...perm('admin.users')}><CustomFields /></PermRoute>

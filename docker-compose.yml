@@ -11,6 +11,10 @@ services:
       - NODE_ENV=production
       # Override with a long random string in real deployments
       - SESSION_SECRET=${SESSION_SECRET:-change-me-to-a-long-random-secret}
+      - HUB_PUBLIC_URL=${HUB_PUBLIC_URL:-}
+      - HUB_TAILSCALE_URL=${HUB_TAILSCALE_URL:-}
+      - HUB_JWT_SECRET=${HUB_JWT_SECRET:-}
+      - HUB_PAIRING_NETWORK=${HUB_PAIRING_NETWORK:-private_only}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]

@@ -181,3 +181,32 @@ export const getActivity = (params = {}) => {
   const q = new URLSearchParams(params).toString();
   return api.get('/activity' + (q ? `?${q}` : ''));
 };
+
+async function hubAdmin(method, path, body) {
+  const token = getToken();
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  const opts = { method, headers, credentials: 'include' };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const res = await fetch('/hub/v1' + path, opts);
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = { message: text }; }
+  if (res.status === 401 && onUnauthorized) onUnauthorized();
+  if (!res.ok) {
+    const msg = (data && data.error && data.error.message) || data.message || `HTTP ${res.status}`;
+    const err = new Error(typeof msg === 'string' ? msg : 'Request failed');
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+export const getHubPairing = () => hubAdmin('GET', '/admin/pairing');
+export const approveHubPairing = (user_code, extra = {}) =>
+  hubAdmin('POST', '/pair/approve', { user_code, ...extra });
+export const denyHubPairing = (user_code) =>
+  hubAdmin('POST', '/pair/deny', { user_code });
+export const getHubDevices = () => hubAdmin('GET', '/admin/devices');
+export const revokeHubDevice = (id) => hubAdmin('POST', `/admin/devices/${id}/revoke`);

@@ -7,6 +7,9 @@ const { readData, writeData } = require('../utils/storage');
 const { requirePermission } = require('../utils/auth');
 const { saveBase64Upload, RECEIPT_MIMES } = require('../utils/uploads');
 const { hasPermission } = require('../utils/permissions');
+const { createTransaction, getBalance } = require('../services/finance');
+const { approveReimbursement, denyReimbursement } = require('../services/approvals');
+const { sendDomainError } = require('../services/errors');
 
 function asyncHandler(fn) {
   return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -35,33 +38,17 @@ router.get('/transactions', requirePermission('finance.transactions.view'), (req
   res.json(txns);
 });
 
-router.get('/transactions/balance', requirePermission('finance.transactions.view'), (req, res) => {
-  const data = readData();
-  const txns = data['rt:accountingTransactions'] || [];
-  const INCOME = new Set(['Donation', 'FundraiserIncome']);
-  const income = txns.filter((t) => INCOME.has(t.type)).reduce((s, t) => s + (t.amount || 0), 0);
-  const expenses = txns.filter((t) => !INCOME.has(t.type)).reduce((s, t) => s + (t.amount || 0), 0);
-  res.json({ income, expenses, balance: income - expenses });
+router.get('/transactions/balance', requirePermission('finance.transactions.view'), (_req, res) => {
+  res.json(getBalance());
 });
 
 router.post('/transactions', requirePermission('finance.transactions.edit'), asyncHandler(async (req, res) => {
-  const data = readData();
-  const txn = {
-    id: uuidv4(),
-    type: req.body.type || 'Purchase',
-    date: req.body.date || new Date().toISOString(),
-    description: req.body.description || '',
-    amount: parseFloat(req.body.amount) || 0,
-    category: req.body.category || '',
-    receiptUrl: req.body.receiptUrl || '',
-    receiptName: req.body.receiptName || '',
-    linkedPurchaseId: req.body.linkedPurchaseId || null,
-    linkedGoalId: req.body.linkedGoalId || null,
-  };
-  if (!data['rt:accountingTransactions']) data['rt:accountingTransactions'] = [];
-  data['rt:accountingTransactions'].push(txn);
-  await writeData(data);
-  res.status(201).json(txn);
+  try {
+    const txn = await createTransaction(req.body || {}, req.user);
+    res.status(201).json(txn);
+  } catch (err) {
+    return sendDomainError(res, err);
+  }
 }));
 
 const IMPORT_TYPE_ALIASES = {
@@ -412,37 +399,21 @@ router.post('/reimbursements', requirePermission('finance.reimbursements.request
 }));
 
 router.post('/reimbursements/:id/approve', requirePermission('finance.reimbursements.approve', 'approvals.manage'), asyncHandler(async (req, res) => {
-  const data = readData();
-  const reimb = (data['rt:reimbursements'] || []).find((r) => r.id === req.params.id);
-  if (!reimb) return res.status(404).json({ error: 'Reimbursement not found' });
-  reimb.status = 'approved';
-  reimb.approvedBy = req.user ? req.user.name : 'system';
-  reimb.approvedAt = new Date().toISOString();
-  if (!data['rt:accountingTransactions']) data['rt:accountingTransactions'] = [];
-  data['rt:accountingTransactions'].push({
-    id: uuidv4(),
-    type: 'Reimbursement',
-    date: new Date().toISOString(),
-    description: 'Reimbursement for ' + reimb.userName + ': ' + reimb.reason,
-    amount: reimb.amount,
-    category: 'Reimbursement',
-    receiptUrl: reimb.receiptUrl,
-    linkedReimbursementId: reimb.id,
-  });
-  await writeData(data);
-  res.json(reimb);
+  try {
+    const reimb = await approveReimbursement(req.params.id, req.user);
+    res.json(reimb);
+  } catch (err) {
+    return sendDomainError(res, err);
+  }
 }));
 
 router.post('/reimbursements/:id/deny', requirePermission('finance.reimbursements.approve', 'approvals.manage'), asyncHandler(async (req, res) => {
-  const data = readData();
-  const reimb = (data['rt:reimbursements'] || []).find((r) => r.id === req.params.id);
-  if (!reimb) return res.status(404).json({ error: 'Reimbursement not found' });
-  reimb.status = 'denied';
-  reimb.approvedBy = req.user ? req.user.name : 'system';
-  reimb.approvedAt = new Date().toISOString();
-  reimb.denialReason = req.body.reason || '';
-  await writeData(data);
-  res.json(reimb);
+  try {
+    const reimb = await denyReimbursement(req.params.id, req.body && req.body.reason, req.user);
+    res.json(reimb);
+  } catch (err) {
+    return sendDomainError(res, err);
+  }
 }));
 
 router.delete('/reimbursements/:id', requirePermission('finance.reimbursements.approve'), asyncHandler(async (req, res) => {
