@@ -175,7 +175,7 @@ All configuration is via environment variables (set in `docker-compose.yml` or a
 | `HUB_JWT_SECRET` | `SESSION_SECRET` | Signs Homelab Hub access tokens |
 | `HUB_PAIRING_NETWORK` | `private_only` | `private_only` or `public_allowed` — pairing from the public internet |
 
-Homelab Hub (Android native UI, no WebView) is documented in [HUB.md](./HUB.md).
+Homelab Hub (Android native UI, no WebView) is documented in [HUB.md](./HUB.md). If the phone shows `Expected start of the object '{', but had '<'`, the URL is returning HTML (often Cloudflare Access) instead of `GET /hub/v1/hello` JSON — see the troubleshooting section there.
 
 ### Using a .env file
 

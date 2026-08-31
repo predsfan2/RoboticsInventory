@@ -170,6 +170,12 @@ function createApp() {
   app.use('/api/activity', require('./routes/activity'));
 
   mountHub(app);
+  // Never fall through to the SPA (or Express's HTML 404) for protocol paths.
+  app.use('/hub/v1', (req, res) => {
+    res.status(404).json({
+      error: { code: 'not_found', message: 'Unknown Hub path' },
+    });
+  });
 
   const UPLOADS_DIR = ensureUploadsDir();
   app.use('/uploads', requireAuth, (req, res, next) => {
@@ -190,11 +196,15 @@ function createApp() {
     },
   }));
 
-  const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+  const PUBLIC_DIR = process.env.PUBLIC_DIR || path.join(__dirname, '..', 'public');
   if (fs.existsSync(PUBLIC_DIR)) {
     app.use(express.static(PUBLIC_DIR));
     app.get('*', (req, res, next) => {
-      if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path.startsWith('/hub/v1')) {
+      if (
+        req.path.startsWith('/api') ||
+        req.path.startsWith('/uploads') ||
+        req.path.startsWith('/hub/v1')
+      ) {
         return next();
       }
       res.sendFile(path.join(PUBLIC_DIR, 'index.html'));

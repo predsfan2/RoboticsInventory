@@ -9,7 +9,14 @@ const http = require('http');
 const crypto = require('crypto');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hub-test-'));
+const publicDir = path.join(tmp, 'public');
+fs.mkdirSync(publicDir, { recursive: true });
+fs.writeFileSync(
+  path.join(publicDir, 'index.html'),
+  '<!DOCTYPE html>\n<html><head></head><body>spa</body></html>\n'
+);
 process.env.DATA_DIR = tmp;
+process.env.PUBLIC_DIR = publicDir;
 process.env.SESSION_SECRET = 'test-session-secret-16chars';
 process.env.HUB_JWT_SECRET = 'test-hub-jwt-secret-16chr';
 process.env.HUB_PAIRING_NETWORK = 'private_only';
@@ -72,6 +79,8 @@ after(async () => {
 test('GET /hub/v1/hello is public and minimal', async () => {
   const res = await request('GET', '/hub/v1/hello');
   assert.equal(res.status, 200);
+  assert.equal(typeof res.json, 'object');
+  assert.ok(!String(res.raw).trimStart().startsWith('<'));
   assert.equal(res.json.protocol, 'hub/v1');
   assert.equal(res.json.app_id, 'robotics.inventory');
   assert.equal(res.json.auth.pairing, 'device_code');
@@ -79,6 +88,20 @@ test('GET /hub/v1/hello is public and minimal', async () => {
   assert.equal(res.json.pairing_network, 'private_only');
   assert.equal(res.json.screens, undefined);
   assert.equal(res.json.devices, undefined);
+});
+
+test('unknown /hub/v1 paths return JSON 404, not SPA HTML', async () => {
+  const res = await request('GET', '/hub/v1/does-not-exist');
+  assert.equal(res.status, 404);
+  assert.equal(typeof res.json, 'object');
+  assert.ok(!String(res.raw).includes('<!DOCTYPE'));
+  assert.equal(res.json.error.code, 'not_found');
+});
+
+test('browser Hub pair page is still the SPA, not the protocol JSON 404', async () => {
+  const res = await request('GET', '/hub/pair');
+  assert.equal(res.status, 200);
+  assert.match(String(res.raw), /<!DOCTYPE html>/i);
 });
 
 test('GET /hub/v1/manifest without token is 401', async () => {

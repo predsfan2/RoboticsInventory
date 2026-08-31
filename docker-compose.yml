@@ -11,6 +11,8 @@ services:
       - NODE_ENV=production
       # Override with a long random string in real deployments
       - SESSION_SECRET=${SESSION_SECRET:-change-me-to-a-long-random-secret}
+      # Homelab Hub. Pairing stays private_only unless you knowingly allow public pair/start.
+      # If Cloudflare Access protects this host, bypass /hub/v1 (see HUB.md).
       - HUB_PUBLIC_URL=${HUB_PUBLIC_URL:-}
       - HUB_TAILSCALE_URL=${HUB_TAILSCALE_URL:-}
       - HUB_JWT_SECRET=${HUB_JWT_SECRET:-}
