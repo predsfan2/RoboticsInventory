@@ -179,6 +179,11 @@ function migrateFile(filePath) {
   var bak = filePath + '.bak';
   var json = JSON.stringify(migrated, null, 2) + '\n';
 
+  if (json === raw) {
+    console.log('[migration] No changes for ' + filePath);
+    return migrated;
+  }
+
   fs.writeFileSync(tmp, json, 'utf8');
   try { fs.copyFileSync(filePath, bak); } catch (_) {}
   fs.renameSync(tmp, filePath);
