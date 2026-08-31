@@ -68,7 +68,7 @@ function buildScreens() {
           action_id: 'inventory.adjust_stock',
           submit_label: 'Adjust stock',
           fields: [
-            { name: 'id', label: 'Item ID', field_type: 'text', required: true },
+            { name: 'id', label: 'Item ID', field_type: 'text', required: true, default: '{{nav.id}}' },
             { name: 'change', label: 'Quantity change (+/−)', field_type: 'number', required: true },
             { name: 'reason', label: 'Reason', field_type: 'text' },
           ],
@@ -78,7 +78,7 @@ function buildScreens() {
           action_id: 'inventory.update_condition',
           submit_label: 'Update condition',
           fields: [
-            { name: 'id', label: 'Item ID', field_type: 'text', required: true },
+            { name: 'id', label: 'Item ID', field_type: 'text', required: true, default: '{{nav.id}}' },
             {
               name: 'condition',
               label: 'Condition',
@@ -92,6 +92,28 @@ function buildScreens() {
               ],
             },
             { name: 'note', label: 'Note', field_type: 'textarea' },
+          ],
+        },
+        {
+          type: 'form',
+          action_id: 'inventory.request_move',
+          submit_label: 'Request move',
+          fields: [
+            { name: 'id', label: 'Item ID', field_type: 'text', required: true, default: '{{nav.id}}' },
+            { name: 'requestedLocation', label: 'New location', field_type: 'text', required: true },
+            { name: 'requestedPerson', label: 'Assign to', field_type: 'text' },
+            { name: 'notes', label: 'Notes', field_type: 'textarea' },
+          ],
+        },
+        {
+          type: 'form',
+          action_id: 'inventory.move',
+          submit_label: 'Move now',
+          fields: [
+            { name: 'id', label: 'Item ID', field_type: 'text', required: true, default: '{{nav.id}}' },
+            { name: 'location', label: 'New location', field_type: 'text', required: true },
+            { name: 'person', label: 'Assign to', field_type: 'text' },
+            { name: 'notes', label: 'Notes', field_type: 'textarea' },
           ],
         },
         {
@@ -111,6 +133,7 @@ function buildScreens() {
           type: 'list',
           id: 'purchases-list',
           data_url: dataUrl('purchases.list'),
+          item_nav: { screen_id: 'purchase', param: 'id' },
           empty_message: 'No purchase requests',
         },
         {
@@ -131,6 +154,42 @@ function buildScreens() {
               ],
             },
             { name: 'notes', label: 'Notes', field_type: 'textarea' },
+          ],
+        },
+      ],
+    },
+    {
+      id: 'purchase',
+      title: 'Purchase',
+      params: ['id'],
+      components: [
+        {
+          type: 'form',
+          action_id: 'purchases.receive',
+          submit_label: 'Receive purchase',
+          fields: [
+            { name: 'id', label: 'Purchase ID', field_type: 'text', required: true, default: '{{nav.id}}' },
+            { name: 'amount', label: 'Cost (posts a Finance Purchase txn)', field_type: 'number' },
+            { name: 'receiveLocation', label: 'Receive into location', field_type: 'text' },
+          ],
+        },
+        {
+          type: 'form',
+          action_id: 'purchases.set_status',
+          submit_label: 'Set status',
+          fields: [
+            { name: 'id', label: 'Purchase ID', field_type: 'text', required: true, default: '{{nav.id}}' },
+            {
+              name: 'status',
+              label: 'Status',
+              field_type: 'select',
+              required: true,
+              options: [
+                { value: 'Needed', label: 'Needed' },
+                { value: 'Ordered', label: 'Ordered' },
+                { value: 'Received', label: 'Received' },
+              ],
+            },
           ],
         },
       ],
@@ -190,6 +249,7 @@ function buildScreens() {
               options: [
                 { value: 'move', label: 'Move request' },
                 { value: 'reimbursement', label: 'Reimbursement' },
+                { value: 'purchase', label: 'Purchase' },
               ],
             },
             {
@@ -241,6 +301,15 @@ function buildScreens() {
             { name: 'date', label: 'Date', field_type: 'date' },
           ],
         },
+        {
+          type: 'form',
+          action_id: 'finance.create_reimbursement',
+          submit_label: 'Request reimbursement',
+          fields: [
+            { name: 'amount', label: 'Amount', field_type: 'number', required: true },
+            { name: 'reason', label: 'Reason', field_type: 'text', required: true },
+          ],
+        },
       ],
     },
   ];
@@ -274,6 +343,7 @@ function componentAllowed(component, scopes) {
     const navScope = {
       inventory: 'read:inventory',
       purchases: 'read:purchases',
+      purchase: 'read:purchases',
       borrows: 'read:borrows',
       finance: 'read:finance',
       approvals: 'read:approvals',

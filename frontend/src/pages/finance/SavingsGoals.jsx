@@ -76,7 +76,7 @@ function GoalFormModal({ initial, onSave, onClose }) {
 
 function AddFundsModal({ goal, transactions, onClose, onSuccess }) {
   const toast = useToast();
-  const [mode, setMode] = useState('new');
+  const [mode, setMode] = useState('existing');
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState(`Contribution to: ${goal.name}`);
   const [selectedTxId, setSelectedTxId] = useState('');
@@ -136,6 +136,7 @@ function AddFundsModal({ goal, transactions, onClose, onSuccess }) {
                 <label className="block text-xs text-gray-400 mb-1">Description</label>
                 <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} />
               </div>
+              <p className="text-xs text-amber-400">This adds new income to the team balance.</p>
             </>
           ) : (
             <div>
@@ -273,7 +274,7 @@ export default function SavingsGoals() {
       {deleteTarget && (
         <ConfirmDialog
           title="Delete Goal"
-          message={`Delete goal "${deleteTarget.name}"?`}
+          message={`Delete goal "${deleteTarget.name}"? Linked income transactions stay on the ledger.`}
           confirmLabel="Delete" dangerous
           onConfirm={handleDelete}
           onCancel={() => setDeleteTarget(null)}

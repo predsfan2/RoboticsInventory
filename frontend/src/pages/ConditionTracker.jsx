@@ -1,22 +1,32 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getItems } from '../lib/api';
-import { useToast } from '../App';
+import { getItems, getLocations, updateItem, deleteItem } from '../lib/api';
+import { useAuth, useToast } from '../App';
+import { hasPermission, canUpdateCondition } from '../lib/permissions';
 import { CONDITION_COLORS, CONDITIONS, CONDITION_ORDER } from '../lib/constants';
 import ConditionUpdateModal from '../modals/ConditionUpdateModal';
 import ItemDetailModal from '../modals/ItemDetailModal';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { ItemFormModal } from './Inventory';
 
 export default function ConditionTracker() {
+  const { user } = useAuth();
   const toast = useToast();
   const [items, setItems] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
   const [updateTarget, setUpdateTarget] = useState(null);
   const [detailItem, setDetailItem] = useState(null);
+  const [editItem, setEditItem] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const canCond = canUpdateCondition(user);
+  const canEdit = hasPermission(user, 'inventory.edit');
+  const canDelete = hasPermission(user, 'inventory.delete');
 
   const load = useCallback(() => {
     setLoading(true);
-    getItems()
-      .then(setItems)
+    Promise.all([getItems(), getLocations().catch(() => [])])
+      .then(([its, locs]) => { setItems(its); setLocations(locs || []); })
       .catch((e) => toast(e.message, 'error'))
       .finally(() => setLoading(false));
   }, []);
@@ -112,12 +122,14 @@ export default function ConditionTracker() {
                   {!lastLog && <p className="text-xs text-gray-600">No condition history</p>}
                 </div>
 
+                {canCond && (
                 <button
                   onClick={() => setUpdateTarget(item)}
                   className="btn-secondary text-xs flex-shrink-0"
                 >
                   Update
                 </button>
+                )}
               </div>
             );
           })}
@@ -134,9 +146,31 @@ export default function ConditionTracker() {
       {detailItem && (
         <ItemDetailModal
           item={detailItem}
-          locations={[]}
+          locations={locations}
           onClose={() => setDetailItem(null)}
           onRefresh={load}
+          onEdit={canEdit ? (i) => { setDetailItem(null); setEditItem(i); } : undefined}
+          onDelete={canDelete ? (i) => { setDetailItem(null); setDeleteTarget(i); } : undefined}
+        />
+      )}
+      {editItem && (
+        <ItemFormModal
+          initial={editItem}
+          locations={locations}
+          allItems={items}
+          customFieldDefs={[]}
+          onSave={async (form) => { await updateItem(editItem.id, form); toast('Item updated', 'success'); load(); }}
+          onClose={() => setEditItem(null)}
+        />
+      )}
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete Item"
+          message={`Permanently delete "${deleteTarget.name}"?`}
+          confirmLabel="Delete"
+          dangerous
+          onConfirm={async () => { await deleteItem(deleteTarget.id); setDeleteTarget(null); toast('Deleted', 'success'); load(); }}
+          onCancel={() => setDeleteTarget(null)}
         />
       )}
     </div>

@@ -290,12 +290,16 @@ function listDevices() {
 }
 
 function publicDevice(d) {
+  const data = readData() || {};
+  const user = (data['rt:users'] || []).find((u) => u.id === d.user_id);
   return {
     device_id: d.id,
     name: d.name,
     created_at: d.created_at,
     last_seen_at: d.last_seen_at,
     revoked: !!d.revoked,
+    user_id: d.user_id || null,
+    user_name: user ? user.name : null,
   };
 }
 

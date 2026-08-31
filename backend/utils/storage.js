@@ -55,8 +55,9 @@ function _doWrite(data) {
 
 /** Queue a full-file write. Always await this. */
 function writeData(data) {
-  writeChain = writeChain.then(() => _doWrite(data));
-  return writeChain;
+  const run = writeChain.then(() => _doWrite(data));
+  writeChain = run.catch(() => {});
+  return run;
 }
 
 /**
@@ -64,15 +65,15 @@ function writeData(data) {
  * fn receives the data object, mutates it, and may return a response value.
  */
 function withData(fn) {
-  let result;
-  writeChain = writeChain.then(async () => {
+  const run = writeChain.then(async () => {
     const data = readData();
     if (!data) throw new Error('No data loaded');
-    result = await fn(data);
+    const result = await fn(data);
     await _doWrite(data);
     return result;
   });
-  return writeChain.then(() => result);
+  writeChain = run.catch(() => {});
+  return run;
 }
 
 /**

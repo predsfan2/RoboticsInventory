@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { updateUnit } from '../lib/api';
 import { useToast } from '../App';
 import { CONDITIONS, CONDITION_COLORS } from '../lib/constants';
+import LocationSelect from '../components/LocationSelect';
 
-export default function UnitManagerModal({ unit, onClose, onSuccess }) {
+export default function UnitManagerModal({ unit, locations = [], onClose, onSuccess }) {
   const toast = useToast();
   const [form, setForm] = useState({
     condition: unit.condition || 'Good',
@@ -72,7 +73,7 @@ export default function UnitManagerModal({ unit, onClose, onSuccess }) {
           </div>
           <div>
             <label className="block text-xs text-gray-400 mb-1">Location</label>
-            <input className="input" value={form.currentLocation} onChange={(e) => setForm((f) => ({ ...f, currentLocation: e.target.value }))} placeholder="Location" />
+            <LocationSelect locations={locations} value={form.currentLocation} onChange={(v) => setForm((f) => ({ ...f, currentLocation: v }))} emptyLabel="None" />
           </div>
           <div>
             <label className="block text-xs text-gray-400 mb-1">Assigned Person</label>

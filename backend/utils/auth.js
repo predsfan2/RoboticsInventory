@@ -39,7 +39,7 @@ function isHashedPassword(value) {
 
 function signToken(user) {
   return jwt.sign(
-    { sub: user.id, name: user.name, role: user.role },
+    { sub: user.id, name: user.name, role: user.role, tv: user.tokenVersion || 0 },
     getJwtSecret(),
     { expiresIn: TOKEN_TTL }
   );
@@ -69,7 +69,6 @@ function extractToken(req) {
   if (header.startsWith('Bearer ')) return header.slice(7).trim();
   const cookies = parseCookies(req.headers.cookie);
   if (cookies.rt_token) return cookies.rt_token;
-  if (req.query && req.query.token) return String(req.query.token);
   return null;
 }
 
@@ -81,7 +80,9 @@ function attachUser(req, _res, next) {
     const payload = jwt.verify(token, getJwtSecret());
     const data = readData();
     const user = (data['rt:users'] || []).find((u) => u.id === payload.sub);
-    if (user) req.user = user;
+    if (user && (user.tokenVersion || 0) === (payload.tv || 0)) {
+      req.user = user;
+    }
   } catch (_err) {
     // Invalid/expired token — leave req.user unset; requireAuth will 401
   }

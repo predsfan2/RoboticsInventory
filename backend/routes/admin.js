@@ -6,6 +6,8 @@ const { v4: uuidv4 } = require('uuid');
 const { readData, writeData } = require('../utils/storage');
 const { requirePermission, hashPassword, stripPassword } = require('../utils/auth');
 const { ROLE_DEFAULT_PERMISSIONS } = require('../utils/permissions');
+const locations = require('../services/locations');
+const { sendDomainError } = require('../services/errors');
 
 function asyncHandler(fn) {
   return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -40,6 +42,8 @@ router.post('/users', requirePermission('admin.users'), asyncHandler(async (req,
     permissions: Array.isArray(req.body.permissions) && req.body.permissions.length
       ? req.body.permissions
       : (ROLE_DEFAULT_PERMISSIONS[role] || ROLE_DEFAULT_PERMISSIONS.Member).slice(),
+    tokenVersion: 0,
+    mustChangePassword: req.body.mustChangePassword !== false,
   };
   data['rt:users'].push(user);
   await writeData(data);
@@ -82,6 +86,8 @@ router.post('/users/:id/password', requirePermission('admin.users'), asyncHandle
     return res.status(400).json({ error: 'Password must be at least 6 characters' });
   }
   user.password = hashPassword(req.body.password);
+  user.tokenVersion = (user.tokenVersion || 0) + 1;
+  user.mustChangePassword = true;
   await writeData(data);
   res.json({ success: true });
 }));
@@ -94,28 +100,64 @@ router.get('/locations', requirePermission('inventory.view', 'admin.locations'),
 router.post('/locations', requirePermission('admin.locations'), asyncHandler(async (req, res) => {
   const data = readData();
   if (!data['rt:locs']) data['rt:locs'] = [];
-  const loc = { id: uuidv4(), name: req.body.name || '' };
+  const loc = {
+    id: uuidv4(),
+    name: req.body.name || '',
+    parentId: req.body.parentId || null,
+    startDate: req.body.startDate || null,
+    endDate: req.body.endDate || null,
+  };
   data['rt:locs'].push(loc);
   await writeData(data);
   res.status(201).json(loc);
 }));
 
 router.put('/locations/:id', requirePermission('admin.locations'), asyncHandler(async (req, res) => {
-  const data = readData();
-  const loc = (data['rt:locs'] || []).find((l) => l.id === req.params.id);
-  if (!loc) return res.status(404).json({ error: 'Location not found' });
-  if (req.body.name !== undefined) loc.name = req.body.name;
-  await writeData(data);
-  res.json(loc);
+  try {
+    const loc = await locations.updateLocation(req.params.id, req.body || {}, req.user);
+    res.json(loc);
+  } catch (err) {
+    return sendDomainError(res, err);
+  }
+}));
+
+router.post('/locations/:id/merge', requirePermission('admin.locations'), asyncHandler(async (req, res) => {
+  try {
+    const loc = await locations.mergeLocations(req.params.id, req.body && req.body.targetId, req.user);
+    res.json(loc);
+  } catch (err) {
+    return sendDomainError(res, err);
+  }
+}));
+
+router.post('/locations/:id/move-all', requirePermission('moves.request', 'moves.approve'), asyncHandler(async (req, res) => {
+  try {
+    const data = readData();
+    const loc = (data['rt:locs'] || []).find((l) => l.id === req.params.id);
+    if (!loc) return res.status(404).json({ error: 'Location not found' });
+    const result = await locations.bulkMove({
+      fromLocation: loc.name,
+      toLocation: req.body && req.body.toLocation,
+      person: req.body && req.body.person,
+      notes: req.body && req.body.notes,
+    }, req.user);
+    res.json(result);
+  } catch (err) {
+    return sendDomainError(res, err);
+  }
 }));
 
 router.delete('/locations/:id', requirePermission('admin.locations'), asyncHandler(async (req, res) => {
-  const data = readData();
-  const idx = (data['rt:locs'] || []).findIndex((l) => l.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Location not found' });
-  data['rt:locs'].splice(idx, 1);
-  await writeData(data);
-  res.json({ success: true });
+  try {
+    const body = req.body || {};
+    await locations.deleteLocation(req.params.id, {
+      replacementId: body.replacementId || req.query.replacementId,
+      leaveAsText: body.leaveAsText === true || req.query.leaveAsText === 'true',
+    }, req.user);
+    res.json({ success: true });
+  } catch (err) {
+    return sendDomainError(res, err);
+  }
 }));
 
 router.get('/custom-fields', requirePermission('inventory.view', 'admin.users'), (req, res) => {

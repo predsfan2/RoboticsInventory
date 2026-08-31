@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getBorrows, createBorrow, updateBorrow, returnBorrow, deleteBorrow, getItems } from '../lib/api';
+import { useSearchParams } from 'react-router-dom';
+import { getBorrows, createBorrow, updateBorrow, returnBorrow, deleteBorrow, getItems, getItemUnits } from '../lib/api';
 import { useAuth, useToast } from '../App';
 import { hasPermission } from '../lib/permissions';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -12,9 +13,12 @@ function BorrowFormModal({ initial, items, onSave, onClose }) {
     contact: initial.contact || '',
     expectedReturnDate: initial.expectedReturnDate ? String(initial.expectedReturnDate).slice(0, 10) : '',
     notes: initial.notes || '',
-  } : { itemId: '', borrowerName: '', contact: '', expectedReturnDate: '', notes: '' });
+    qty: initial.qty || 1,
+    unitIds: initial.unitIds || [],
+  } : { itemId: '', borrowerName: '', contact: '', expectedReturnDate: '', notes: '', qty: 1, unitIds: [] });
   const [query, setQuery] = useState('');
   const [saving, setSaving] = useState(false);
+  const [units, setUnits] = useState([]);
   const toast = useToast();
 
   const matchedItems = query.trim()
@@ -36,6 +40,11 @@ function BorrowFormModal({ initial, items, onSave, onClose }) {
   };
 
   const selectedItem = items.find((i) => i.id === form.itemId);
+
+  useEffect(() => {
+    if (!form.itemId) { setUnits([]); return; }
+    getItemUnits(form.itemId).then(setUnits).catch(() => setUnits([]));
+  }, [form.itemId]);
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -81,6 +90,32 @@ function BorrowFormModal({ initial, items, onSave, onClose }) {
             )}
           </div>
           <div>
+            <label className="block text-xs text-gray-400 mb-1">Quantity</label>
+            <input type="number" min="1" className="input" value={form.qty} onChange={(e) => setForm((f) => ({ ...f, qty: parseInt(e.target.value, 10) || 1 }))} />
+          </div>
+          {units.length > 0 && (
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Units (optional)</label>
+              <div className="max-h-28 overflow-y-auto space-y-1 bg-gray-800/40 rounded-lg p-2">
+                {units.map((u) => (
+                  <label key={u.id} className="flex items-center gap-2 text-xs text-gray-300">
+                    <input
+                      type="checkbox"
+                      checked={(form.unitIds || []).includes(u.id)}
+                      onChange={(e) => setForm((f) => ({
+                        ...f,
+                        unitIds: e.target.checked
+                          ? [...(f.unitIds || []), u.id]
+                          : (f.unitIds || []).filter((id) => id !== u.id),
+                      }))}
+                    />
+                    {u.unitSku} {u.currentPerson ? `(${u.currentPerson})` : ''}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+          <div>
             <label className="block text-xs text-gray-400 mb-1">Borrower Name *</label>
             <input className="input" required value={form.borrowerName} onChange={(e) => setForm((f) => ({ ...f, borrowerName: e.target.value }))} placeholder="Full name" />
           </div>
@@ -109,6 +144,8 @@ function BorrowFormModal({ initial, items, onSave, onClose }) {
 export default function Borrows() {
   const { user } = useAuth();
   const toast = useToast();
+  const [searchParams] = useSearchParams();
+  const highlight = searchParams.get('highlight');
   const [borrows, setBorrows] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -197,7 +234,7 @@ export default function Borrows() {
             const item = items.find((i) => i.id === b.itemId);
             const isOverdue = b.status === 'active' && b.expectedReturnDate && new Date(b.expectedReturnDate) < now;
             return (
-              <div key={b.id} className={`card p-4 flex flex-col sm:flex-row sm:items-center gap-3 ${isOverdue ? 'border-red-800/60' : ''}`}>
+              <div key={b.id} id={`borrow-${b.id}`} className={`card p-4 flex flex-col sm:flex-row sm:items-center gap-3 ${isOverdue ? 'border-red-800/60' : ''} ${highlight === b.id ? 'ring-1 ring-indigo-500' : ''}`}>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap mb-1">
                     <span className="font-medium text-gray-200">{item?.name || b.itemId}</span>
@@ -205,6 +242,7 @@ export default function Borrows() {
                   </div>
                   <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500">
                     <span>👤 {b.borrowerName}</span>
+                    {b.qty > 1 && <span>×{b.qty}</span>}
                     {b.contact && <span>📞 {b.contact}</span>}
                     {b.expectedReturnDate && (
                       <span className={isOverdue ? 'text-red-400' : ''}>

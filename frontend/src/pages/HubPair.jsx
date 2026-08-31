@@ -143,7 +143,7 @@ export default function HubPair() {
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-gray-200">{d.name}</p>
                 <p className="text-xs text-gray-500">
-                  Last seen {formatWhen(d.last_seen_at)} · {d.revoked ? 'revoked' : 'active'}
+                  Bound to {d.user_name || d.user_id || 'unknown'} · Last seen {formatWhen(d.last_seen_at)} · {d.revoked ? 'revoked' : 'active'}
                 </p>
               </div>
               {!d.revoked && (

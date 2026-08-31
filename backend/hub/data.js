@@ -69,6 +69,14 @@ function handlers(scopes) {
           trailing: 'Pending',
         });
       }
+      for (const p of pending.purchases || []) {
+        items.push({
+          id: p.id,
+          title: `PO · ${p.name}`,
+          subtitle: `High priority · ${p.requester || 'request'}`,
+          trailing: 'Pending',
+        });
+      }
       return { items, next_cursor: null };
     },
 

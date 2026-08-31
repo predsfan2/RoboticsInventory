@@ -67,12 +67,16 @@ const DATA_KEY_SCOPES = {
 const ACTION_SCOPES = {
   'inventory.adjust_stock': 'write:inventory',
   'inventory.update_condition': 'write:inventory',
+  'inventory.request_move': 'write:inventory',
+  'inventory.move': 'write:inventory',
   'purchases.create': 'write:purchases',
   'purchases.set_status': 'write:purchases',
+  'purchases.receive': 'write:purchases',
   'borrows.create': 'write:borrows',
   'borrows.return': 'write:borrows',
   'approvals.decide': 'write:approvals',
   'finance.add_transaction': 'write:finance',
+  'finance.create_reimbursement': 'write:finance',
 };
 
 function scopeForDataKey(key) {

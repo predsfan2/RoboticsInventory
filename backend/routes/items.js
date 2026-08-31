@@ -10,7 +10,7 @@ const { requirePermission } = require('../utils/auth');
 const { hasPermission } = require('../utils/permissions');
 const { auditLog, activityLog } = require('../utils/logging');
 const { saveBase64Upload, IMAGE_MIMES, INVOICE_MIMES } = require('../utils/uploads');
-const { adjustStock, updateCondition } = require('../services/inventory');
+const { adjustStock, updateCondition, applyMove, assembleKit, breakKit } = require('../services/inventory');
 const { sendDomainError } = require('../services/errors');
 
 const MAX_UNITS = 500;
@@ -35,7 +35,9 @@ router.get('/', requirePermission('inventory.view'), (req, res) => {
 router.post('/', requirePermission('inventory.edit'), asyncHandler(async (req, res) => {
   const data = readData();
   const now = new Date().toISOString();
-  let totalQty = parseInt(req.body.totalQty, 10) || 1;
+  let totalQty = parseInt(req.body.totalQty, 10);
+  if (Number.isNaN(totalQty)) totalQty = 1;
+  if (totalQty < 0) totalQty = 0;
   if (totalQty > MAX_UNITS) totalQty = MAX_UNITS;
 
   const item = {
@@ -139,6 +141,24 @@ router.post('/:id/condition', requireConditionUpdate, asyncHandler(async (req, r
   }
 }));
 
+router.post('/:id/assemble', requirePermission('inventory.edit'), asyncHandler(async (req, res) => {
+  try {
+    const item = await assembleKit(req.params.id, (req.body && req.body.qty) || 1, req.user);
+    res.json(item);
+  } catch (err) {
+    return sendDomainError(res, err);
+  }
+}));
+
+router.post('/:id/break', requirePermission('inventory.edit'), asyncHandler(async (req, res) => {
+  try {
+    const item = await breakKit(req.params.id, (req.body && req.body.qty) || 1, req.user);
+    res.json(item);
+  } catch (err) {
+    return sendDomainError(res, err);
+  }
+}));
+
 router.post('/:id/move-request', requirePermission('moves.request'), asyncHandler(async (req, res) => {
   const data = readData();
   const item = (data['rt:items'] || []).find((i) => i.id === req.params.id);
@@ -165,31 +185,12 @@ router.post('/:id/move-request', requirePermission('moves.request'), asyncHandle
 }));
 
 router.post('/:id/move', requirePermission('moves.approve'), asyncHandler(async (req, res) => {
-  const data = readData();
-  const item = (data['rt:items'] || []).find((i) => i.id === req.params.id);
-  if (!item) return res.status(404).json({ error: 'Item not found' });
-
-  const before = { currentLocation: item.currentLocation, currentPerson: item.currentPerson };
-  item.currentLocation = req.body.location || item.currentLocation;
-  item.currentPerson = req.body.person !== undefined ? req.body.person : item.currentPerson;
-
-  const entry = {
-    id: uuidv4(),
-    location: item.currentLocation,
-    person: item.currentPerson,
-    movedBy: req.user ? req.user.name : 'system',
-    notes: req.body.notes || '',
-    date: new Date().toISOString(),
-  };
-  item.locationLog.push(entry);
-
-  auditLog(data, 'MOVE_ITEM', req.user, item.id, item.name, before, {
-    currentLocation: item.currentLocation,
-    currentPerson: item.currentPerson,
-  });
-  activityLog(data, 'MOVE_ITEM', req.user, item.id, item.name, `Moved to "${item.currentLocation}"`);
-  await writeData(data);
-  res.json(item);
+  try {
+    const item = await applyMove(req.params.id, req.body || {}, req.user);
+    res.json(item);
+  } catch (err) {
+    return sendDomainError(res, err);
+  }
 }));
 
 router.get('/:id/units', requirePermission('inventory.view'), (req, res) => {

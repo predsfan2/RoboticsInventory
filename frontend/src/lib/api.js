@@ -69,14 +69,19 @@ export const api = {
 // Auth
 export const login = (name, password) => api.post('/auth/login', { name, password });
 export const logout = () => api.post('/auth/logout');
-export const getUsernames = () => api.get('/auth/usernames');
+export const changeOwnPassword = (password, currentPassword) =>
+  api.post('/auth/password', { password, currentPassword });
+export const revokeOtherSessions = () => api.post('/auth/revoke-sessions');
 
 // Items
 export const getItems = () => api.get('/items');
 export const createItem = (body) => api.post('/items', body);
 export const updateItem = (id, body) => api.put(`/items/${id}`, body);
 export const deleteItem = (id) => api.del(`/items/${id}`);
-export const adjustStock = (id, change, reason) => api.post(`/items/${id}/stock`, { change, reason });
+export const adjustStock = (id, change, reason, unitIds) =>
+  api.post(`/items/${id}/stock`, { change, reason, unitIds });
+export const assembleKit = (id, qty) => api.post(`/items/${id}/assemble`, { qty });
+export const breakKit = (id, qty) => api.post(`/items/${id}/break`, { qty });
 export const updateCondition = (id, condition, note) => api.post(`/items/${id}/condition`, { condition, note });
 export const createMoveRequest = (id, body) => api.post(`/items/${id}/move-request`, body);
 export const moveItemDirect = (id, body) => api.post(`/items/${id}/move`, body);
@@ -98,7 +103,10 @@ export const getPurchases = () => api.get('/purchases');
 export const createPurchase = (body) => api.post('/purchases', body);
 export const updatePurchase = (id, body) => api.put(`/purchases/${id}`, body);
 export const deletePurchase = (id) => api.del(`/purchases/${id}`);
-export const setPurchaseStatus = (id, status) => api.patch(`/purchases/${id}/status`, { status });
+export const setPurchaseStatus = (id, status, extras = {}) =>
+  api.patch(`/purchases/${id}/status`, { status, ...extras });
+export const approvePurchase = (id) => api.post(`/purchases/${id}/approve`);
+export const denyPurchase = (id, reason) => api.post(`/purchases/${id}/deny`, { reason });
 
 // Borrows
 export const getBorrows = () => api.get('/borrows');
@@ -143,6 +151,8 @@ export const createFundraiser = (body) => api.post('/fundraisers', body);
 export const updateFundraiser = (id, body) => api.put(`/fundraisers/${id}`, body);
 export const deleteFundraiser = (id) => api.del(`/fundraisers/${id}`);
 export const addDonation = (id, body) => api.post(`/fundraisers/${id}/donations`, body);
+export const updateDonation = (id, donationId, body) => api.put(`/fundraisers/${id}/donations/${donationId}`, body);
+export const deleteDonation = (id, donationId) => api.del(`/fundraisers/${id}/donations/${donationId}`);
 export const addQuickTotal = (id, body) => api.post(`/fundraisers/${id}/quick-total`, body);
 
 export const getBalanceSheet = () => api.get('/reports/balance-sheet');
@@ -151,6 +161,7 @@ export const getDonationsReport = () => api.get('/reports/donations');
 
 // Approvals
 export const getPendingApprovals = () => api.get('/approvals/pending');
+export const getApprovalHistory = () => api.get('/approvals/history');
 
 // Admin
 export const getUsers = () => api.get('/users');
@@ -160,9 +171,11 @@ export const deleteUser = (id) => api.del(`/users/${id}`);
 export const changePassword = (id, password) => api.post(`/users/${id}/password`, { password });
 
 export const getLocations = () => api.get('/locations');
-export const createLocation = (name) => api.post('/locations', { name });
-export const updateLocation = (id, name) => api.put(`/locations/${id}`, { name });
-export const deleteLocation = (id) => api.del(`/locations/${id}`);
+export const createLocation = (body) => api.post('/locations', typeof body === 'string' ? { name: body } : body);
+export const updateLocation = (id, body) => api.put(`/locations/${id}`, typeof body === 'string' ? { name: body } : body);
+export const deleteLocation = (id, body) => request('DELETE', `/locations/${id}`, body || {});
+export const mergeLocation = (id, targetId) => api.post(`/locations/${id}/merge`, { targetId });
+export const bulkMoveFromLocation = (id, body) => api.post(`/locations/${id}/move-all`, body);
 
 export const getCustomFields = () => api.get('/custom-fields');
 export const createCustomFields = (body) => api.post('/custom-fields', body);

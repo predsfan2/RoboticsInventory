@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { getItems, createItem, updateItem, deleteItem, getLocations, getCustomFields } from '../lib/api';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { getItems, createItem, updateItem, deleteItem, getLocations, getCustomFields, adjustStock } from '../lib/api';
 import { useAuth, useToast } from '../App';
 import { hasPermission } from '../lib/permissions';
 import { CATEGORIES, CONDITIONS, SORT_OPTIONS, CONDITION_ORDER } from '../lib/constants';
@@ -8,11 +9,13 @@ import ItemListRow from '../components/ItemListRow';
 import ConfirmDialog from '../components/ConfirmDialog';
 import ItemDetailModal from '../modals/ItemDetailModal';
 import MoveRequestModal from '../modals/MoveRequestModal';
+import LocationSelect from '../components/LocationSelect';
+import { toCSV, downloadCSV, parseCSV, INVENTORY_CSV_HEADERS } from '../lib/csv';
 
 const LS_VIEW = 'rt_inv_view';
 const LS_SORT = 'rt_inv_sort';
 
-function ItemFormModal({ initial, locations, allItems, customFieldDefs, onSave, onClose }) {
+export function ItemFormModal({ initial, locations, allItems, customFieldDefs, onSave, onClose }) {
   const isEdit = !!initial?.id;
   const [form, setForm] = useState(() => {
     if (initial) {
@@ -148,10 +151,7 @@ function ItemFormModal({ initial, locations, allItems, customFieldDefs, onSave, 
             </div>
             <div>
               <label className="block text-xs text-gray-400 mb-1">Location</label>
-              <select className="input" value={form.currentLocation || ''} onChange={(e) => set('currentLocation', e.target.value)}>
-                <option value="">None</option>
-                {locations.map((l) => <option key={l.id} value={l.name}>{l.name}</option>)}
-              </select>
+              <LocationSelect locations={locations} value={form.currentLocation || ''} onChange={(v) => set('currentLocation', v)} emptyLabel="None" />
             </div>
             <div className="col-span-2">
               <label className="block text-xs text-gray-400 mb-1">Assigned Person</label>
@@ -324,10 +324,13 @@ function BulkAddModal({ locations, onSave, onClose }) {
                     </select>
                   </td>
                   <td className="py-1.5 px-2">
-                    <select className="input text-xs py-1" value={row.currentLocation} onChange={(e) => setRow(i, 'currentLocation', e.target.value)}>
-                      <option value="">None</option>
-                      {locations.map((l) => <option key={l.id} value={l.name}>{l.name}</option>)}
-                    </select>
+                    <LocationSelect
+                      locations={locations}
+                      value={row.currentLocation}
+                      onChange={(v) => setRow(i, 'currentLocation', v)}
+                      emptyLabel="None"
+                      className="input text-xs py-1"
+                    />
                   </td>
                   <td className="py-1.5 pl-2">
                     <button onClick={() => removeRow(i)} className="text-gray-600 hover:text-red-400 text-base">✕</button>
@@ -372,10 +375,7 @@ function DirectMoveModal({ item, locations, onSave, onClose }) {
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
             <label className="block text-xs text-gray-400 mb-1">Location</label>
-            <select className="input" value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}>
-              <option value="">None</option>
-              {locations.map((l) => <option key={l.id} value={l.name}>{l.name}</option>)}
-            </select>
+            <LocationSelect locations={locations} value={form.location} onChange={(v) => setForm((f) => ({ ...f, location: v }))} emptyLabel="None" />
           </div>
           <div>
             <label className="block text-xs text-gray-400 mb-1">Assigned Person</label>
@@ -398,13 +398,15 @@ function DirectMoveModal({ item, locations, onSave, onClose }) {
 export default function Inventory() {
   const { user } = useAuth();
   const toast = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const fileRef = useRef(null);
   const [items, setItems] = useState([]);
   const [locations, setLocations] = useState([]);
   const [customFieldDefs, setCustomFieldDefs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState(() => localStorage.getItem(LS_VIEW) || 'grid');
   const [sort, setSort] = useState(() => localStorage.getItem(LS_SORT) || 'name_asc');
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(() => searchParams.get('q') || '');
   const [filterCondition, setFilterCondition] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
   const [filterLocation, setFilterLocation] = useState('');
@@ -417,6 +419,7 @@ export default function Inventory() {
   const [directMoveItem, setDirectMoveItem] = useState(null);
 
   const canMove = hasPermission(user, 'moves.approve');
+  const canRequestMove = hasPermission(user, 'moves.request');
   const canEdit = hasPermission(user, 'inventory.edit');
   const canDelete = hasPermission(user, 'inventory.delete');
 
@@ -429,6 +432,13 @@ export default function Inventory() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const itemId = searchParams.get('item');
+    if (!itemId || !items.length) return;
+    const found = items.find((i) => i.id === itemId);
+    if (found) setDetailItem(found);
+  }, [searchParams, items]);
 
   useEffect(() => { localStorage.setItem(LS_VIEW, view); }, [view]);
   useEffect(() => { localStorage.setItem(LS_SORT, sort); }, [sort]);
@@ -485,6 +495,64 @@ export default function Inventory() {
     }
   };
 
+  const exportCsv = () => {
+    const rows = items.map((i) => ({
+      name: i.name,
+      itemNumber: i.itemNumber || '',
+      category: i.category || '',
+      qty: i.totalQty,
+      minStock: i.minStock || 0,
+      condition: i.condition || '',
+      location: i.currentLocation || '',
+      person: i.currentPerson || '',
+      notes: i.notes || '',
+    }));
+    downloadCSV('inventory.csv', toCSV(rows, INVENTORY_CSV_HEADERS));
+  };
+
+  const importCsv = async (file) => {
+    try {
+      const text = await file.text();
+      const { rows } = parseCSV(text);
+      let created = 0;
+      let updated = 0;
+      for (const row of rows) {
+        const name = (row.name || '').trim();
+        if (!name) continue;
+        const payload = {
+          name,
+          itemNumber: row.itemNumber || '',
+          category: row.category || '',
+          totalQty: parseInt(row.qty, 10) || 1,
+          minStock: parseInt(row.minStock, 10) || 0,
+          condition: row.condition || 'Good',
+          currentLocation: row.location || '',
+          currentPerson: row.person || '',
+          notes: row.notes || '',
+        };
+        const match = items.find((i) =>
+          (payload.itemNumber && i.itemNumber && i.itemNumber.toLowerCase() === payload.itemNumber.toLowerCase())
+          || i.name.toLowerCase() === name.toLowerCase()
+        );
+        if (match) {
+          await updateItem(match.id, payload);
+          const nextQty = parseInt(row.qty, 10);
+          if (!Number.isNaN(nextQty) && nextQty !== (match.totalQty || 0)) {
+            await adjustStock(match.id, nextQty - (match.totalQty || 0), 'CSV import');
+          }
+          updated += 1;
+        } else {
+          await createItem(payload);
+          created += 1;
+        }
+      }
+      toast(`Imported ${created} new, updated ${updated}`, 'success');
+      load();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  };
+
   const uniqueCategories = [...new Set(items.map((i) => i.category).filter(Boolean))].sort();
   const uniqueLocations = [...new Set(items.map((i) => i.currentLocation).filter(Boolean))].sort();
 
@@ -511,8 +579,12 @@ export default function Inventory() {
             <>
               <button onClick={() => { setEditItem(null); setAddOpen(true); }} className="btn-primary">+ Add</button>
               <button onClick={() => setBulkOpen(true)} className="btn-secondary text-xs">Bulk Add</button>
+              <button onClick={exportCsv} className="btn-secondary text-xs">Export CSV</button>
+              <button onClick={() => fileRef.current?.click()} className="btn-secondary text-xs">Import CSV</button>
+              <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) importCsv(f); e.target.value = ''; }} />
             </>
           )}
+          <Link to="/inventory/labels" className="btn-secondary text-xs">Print labels</Link>
         </div>
 
         {/* Filter chips */}
@@ -582,7 +654,7 @@ export default function Inventory() {
                 key={item.id}
                 item={item}
                 onDetails={(i) => setDetailItem(i)}
-                onMoveRequest={(i) => setMoveReqItem(i)}
+                onMoveRequest={canRequestMove ? (i) => setMoveReqItem(i) : undefined}
                 onDirectMove={canMove ? (i) => setDirectMoveItem(i) : undefined}
                 canMove={canMove}
               />
@@ -595,7 +667,7 @@ export default function Inventory() {
                 key={item.id}
                 item={item}
                 onDetails={(i) => setDetailItem(i)}
-                onMoveRequest={(i) => setMoveReqItem(i)}
+                onMoveRequest={canRequestMove ? (i) => setMoveReqItem(i) : undefined}
                 onDirectMove={canMove ? (i) => setDirectMoveItem(i) : undefined}
                 canMove={canMove}
               />
@@ -627,7 +699,7 @@ export default function Inventory() {
           item={detailItem}
           locations={locations}
           customFieldDefs={customFieldDefs}
-          onClose={() => setDetailItem(null)}
+          onClose={() => { setDetailItem(null); searchParams.delete('item'); setSearchParams(searchParams, { replace: true }); }}
           onRefresh={() => { load(); }}
           onEdit={canEdit ? (i) => { setDetailItem(null); setEditItem(i); setAddOpen(true); } : undefined}
           onDelete={canDelete ? (i) => { setDetailItem(null); setDeleteTarget(i); } : undefined}

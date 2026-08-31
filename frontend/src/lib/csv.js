@@ -1,5 +1,17 @@
 /** Shared CSV helpers for finance import/export. */
 
+export const INVENTORY_CSV_HEADERS = [
+  'name',
+  'itemNumber',
+  'category',
+  'qty',
+  'minStock',
+  'condition',
+  'location',
+  'person',
+  'notes',
+];
+
 export const TRANSACTION_CSV_HEADERS = [
   'date',
   'type',

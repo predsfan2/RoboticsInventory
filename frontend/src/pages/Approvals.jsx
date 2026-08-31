@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  getPendingApprovals, approveMoveRequest, denyMoveRequest,
-  approveReimbursement, denyReimbursement, getItems,
+  getPendingApprovals, getApprovalHistory, approveMoveRequest, denyMoveRequest,
+  approveReimbursement, denyReimbursement, approvePurchase, denyPurchase, getItems,
 } from '../lib/api';
 import { useToast } from '../App';
 
@@ -40,16 +40,27 @@ function DenyModal({ title, onDeny, onClose }) {
 
 export default function Approvals() {
   const toast = useToast();
-  const [data, setData] = useState({ moveRequests: [], reimbursements: [] });
+  const [data, setData] = useState({ moveRequests: [], reimbursements: [], purchases: [] });
+  const [history, setHistory] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [denyTarget, setDenyTarget] = useState(null); // { type, id, label, fn }
+  const [tab, setTab] = useState('pending');
+  const [filter, setFilter] = useState('all');
+  const [denyTarget, setDenyTarget] = useState(null);
   const [busy, setBusy] = useState({});
 
   const load = useCallback(() => {
     setLoading(true);
-    Promise.all([getPendingApprovals(), getItems()])
-      .then(([approvals, its]) => { setData(approvals); setItems(its); })
+    Promise.all([getPendingApprovals(), getApprovalHistory().catch(() => ({ items: [] })), getItems()])
+      .then(([approvals, hist, its]) => {
+        setData({
+          moveRequests: approvals.moveRequests || [],
+          reimbursements: approvals.reimbursements || [],
+          purchases: approvals.purchases || [],
+        });
+        setHistory(hist.items || []);
+        setItems(its);
+      })
       .catch((e) => toast(e.message, 'error'))
       .finally(() => setLoading(false));
   }, []);
@@ -58,31 +69,61 @@ export default function Approvals() {
 
   const setBusyFor = (id, val) => setBusy((b) => ({ ...b, [id]: val }));
 
-  const handleApproveMove = async (id) => {
-    setBusyFor(id, true);
-    try { await approveMoveRequest(id); toast('Move approved', 'success'); load(); }
-    catch (e) { toast(e.message, 'error'); }
-    finally { setBusyFor(id, false); }
-  };
-
-  const handleApproveReimb = async (id) => {
-    setBusyFor(id, true);
-    try { await approveReimbursement(id); toast('Reimbursement approved — transaction created', 'success'); load(); }
-    catch (e) { toast(e.message, 'error'); }
-    finally { setBusyFor(id, false); }
-  };
-
-  const total = data.moveRequests.length + data.reimbursements.length;
+  const total = data.moveRequests.length + data.reimbursements.length + data.purchases.length;
+  const showMoves = filter === 'all' || filter === 'move';
+  const showReimb = filter === 'all' || filter === 'reimburse';
+  const showPo = filter === 'all' || filter === 'purchase';
 
   return (
     <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <h1 className="text-xl font-bold text-gray-100">Approvals</h1>
         {total > 0 && <span className="badge bg-red-900/60 text-red-400 border border-red-800/50">{total} pending</span>}
       </div>
 
+      <div className="flex gap-2">
+        <button type="button" onClick={() => setTab('pending')} className={tab === 'pending' ? 'btn-primary text-xs' : 'btn-secondary text-xs'}>Pending</button>
+        <button type="button" onClick={() => setTab('history')} className={tab === 'history' ? 'btn-primary text-xs' : 'btn-secondary text-xs'}>History</button>
+      </div>
+      <div className="flex gap-2 flex-wrap">
+        {['all', 'move', 'reimburse', 'purchase'].map((f) => (
+          <button key={f} type="button" onClick={() => setFilter(f)} className={`text-xs px-3 py-1 rounded-full border ${filter === f ? 'border-indigo-500 text-indigo-300' : 'border-gray-700 text-gray-500'}`}>
+            {f}
+          </button>
+        ))}
+      </div>
+
       {loading ? (
         <div className="flex items-center justify-center h-40 text-gray-600">Loading…</div>
+      ) : tab === 'history' ? (
+        history.filter((h) => {
+          if (filter === 'move') return h.approvalType === 'moveRequest';
+          if (filter === 'reimburse') return h.approvalType === 'reimbursement';
+          if (filter === 'purchase') return h.approvalType === 'purchase';
+          return true;
+        }).length === 0 ? (
+          <p className="text-sm text-gray-500">No history yet</p>
+        ) : (
+          <div className="space-y-2">
+            {history.filter((h) => {
+              if (filter === 'move') return h.approvalType === 'moveRequest';
+              if (filter === 'reimburse') return h.approvalType === 'reimbursement';
+              if (filter === 'purchase') return h.approvalType === 'purchase';
+              return true;
+            }).map((h) => (
+              <div key={`${h.approvalType}-${h.id}`} className="card p-4 text-sm">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-gray-200 font-medium">{h.approvalType}</span>
+                  <span className={h.status === 'denied' || h.status === 'Denied' ? 'text-red-400' : 'text-emerald-400'}>{h.status}</span>
+                </div>
+                <p className="text-xs text-gray-500">
+                  {h.name || h.requestedLocation || h.reason || h.userName} · {h.approvedBy || ''}
+                  {h.denialReason ? ` · Denied: ${h.denialReason}` : ''}
+                </p>
+              </div>
+            ))}
+          </div>
+        )
       ) : total === 0 ? (
         <div className="flex flex-col items-center justify-center h-40 text-gray-600 gap-2">
           <span className="text-4xl">✅</span>
@@ -90,8 +131,7 @@ export default function Approvals() {
         </div>
       ) : (
         <>
-          {/* Move Requests */}
-          {data.moveRequests.length > 0 && (
+          {showMoves && data.moveRequests.length > 0 && (
             <div>
               <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Move Requests ({data.moveRequests.length})</h2>
               <div className="space-y-2">
@@ -102,7 +142,6 @@ export default function Approvals() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="font-medium text-gray-200">{item?.name || mr.itemId}</span>
-                          <span className="text-xs text-gray-500">📍</span>
                         </div>
                         <div className="flex flex-wrap gap-x-4 text-xs text-gray-500">
                           <span>From: {item?.currentLocation || '—'}</span>
@@ -113,20 +152,10 @@ export default function Approvals() {
                         {mr.notes && <p className="text-xs text-gray-600 mt-1">{mr.notes}</p>}
                       </div>
                       <div className="flex gap-2 flex-shrink-0">
-                        <button
-                          onClick={() => handleApproveMove(mr.id)}
-                          disabled={busy[mr.id]}
-                          className="btn-primary text-xs py-1 px-3"
-                        >
+                        <button onClick={async () => { setBusyFor(mr.id, true); try { await approveMoveRequest(mr.id); toast('Move approved', 'success'); load(); } catch (e) { toast(e.message, 'error'); } finally { setBusyFor(mr.id, false); } }} disabled={busy[mr.id]} className="btn-primary text-xs py-1 px-3">
                           {busy[mr.id] ? '…' : 'Approve'}
                         </button>
-                        <button
-                          onClick={() => setDenyTarget({ id: mr.id, label: item?.name || 'Move', fn: denyMoveRequest })}
-                          disabled={busy[mr.id]}
-                          className="btn-danger text-xs py-1 px-3"
-                        >
-                          Deny
-                        </button>
+                        <button onClick={() => setDenyTarget({ id: mr.id, label: item?.name || 'Move', fn: denyMoveRequest })} disabled={busy[mr.id]} className="btn-danger text-xs py-1 px-3">Deny</button>
                       </div>
                     </div>
                   );
@@ -135,8 +164,7 @@ export default function Approvals() {
             </div>
           )}
 
-          {/* Reimbursements */}
-          {data.reimbursements.length > 0 && (
+          {showReimb && data.reimbursements.length > 0 && (
             <div>
               <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Reimbursement Requests ({data.reimbursements.length})</h2>
               <div className="space-y-2">
@@ -148,26 +176,30 @@ export default function Approvals() {
                         <span className="text-xs text-gray-400">from {r.userName}</span>
                       </div>
                       <p className="text-sm text-gray-400">{r.reason}</p>
-                      {r.receiptUrl && (
-                        <a href={r.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-400 hover:underline">📎 Receipt</a>
-                      )}
-                      <p className="text-xs text-gray-600 mt-0.5">Submitted {new Date(r.createdAt).toLocaleDateString()}</p>
                     </div>
                     <div className="flex gap-2 flex-shrink-0">
-                      <button
-                        onClick={() => handleApproveReimb(r.id)}
-                        disabled={busy[r.id]}
-                        className="btn-primary text-xs py-1 px-3"
-                      >
-                        {busy[r.id] ? '…' : 'Approve'}
-                      </button>
-                      <button
-                        onClick={() => setDenyTarget({ id: r.id, label: `$${r.amount}`, fn: denyReimbursement })}
-                        disabled={busy[r.id]}
-                        className="btn-danger text-xs py-1 px-3"
-                      >
-                        Deny
-                      </button>
+                      <button onClick={async () => { setBusyFor(r.id, true); try { await approveReimbursement(r.id); toast('Reimbursement approved', 'success'); load(); } catch (e) { toast(e.message, 'error'); } finally { setBusyFor(r.id, false); } }} disabled={busy[r.id]} className="btn-primary text-xs py-1 px-3">Approve</button>
+                      <button onClick={() => setDenyTarget({ id: r.id, label: `$${r.amount}`, fn: denyReimbursement })} className="btn-danger text-xs py-1 px-3">Deny</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {showPo && data.purchases.length > 0 && (
+            <div>
+              <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">High-priority purchases ({data.purchases.length})</h2>
+              <div className="space-y-2">
+                {data.purchases.map((p) => (
+                  <div key={p.id} className="card p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <span className="font-medium text-gray-200">{p.name}</span>
+                      <p className="text-xs text-gray-500">Qty {p.quantity} · {p.requester} · High</p>
+                    </div>
+                    <div className="flex gap-2 flex-shrink-0">
+                      <button onClick={async () => { setBusyFor(p.id, true); try { await approvePurchase(p.id); toast('PO approved', 'success'); load(); } catch (e) { toast(e.message, 'error'); } finally { setBusyFor(p.id, false); } }} className="btn-primary text-xs py-1 px-3">Approve</button>
+                      <button onClick={() => setDenyTarget({ id: p.id, label: p.name, fn: denyPurchase })} className="btn-danger text-xs py-1 px-3">Deny</button>
                     </div>
                   </div>
                 ))}

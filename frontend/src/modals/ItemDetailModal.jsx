@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   getItemUnits, adjustStock, addComment, uploadItemImage, uploadInvoice,
-  deleteInvoice, updateUnit,
+  deleteInvoice, updateUnit, assembleKit, breakKit,
 } from '../lib/api';
 import { useAuth, useToast } from '../App';
-import { hasPermission } from '../lib/permissions';
+import { hasPermission, canUpdateCondition } from '../lib/permissions';
 import { CONDITION_COLORS, CONDITIONS } from '../lib/constants';
+import { Link } from 'react-router-dom';
 import ConditionUpdateModal from './ConditionUpdateModal';
 import UnitManagerModal from './UnitManagerModal';
 
@@ -23,17 +24,34 @@ function OverviewTab({ item, customFieldDefs, onRefresh }) {
   const [adjChange, setAdjChange] = useState('');
   const [adjReason, setAdjReason] = useState('');
   const [adjusting, setAdjusting] = useState(false);
+  const [kitQty, setKitQty] = useState('1');
+  const [units, setUnits] = useState([]);
+  const [removeUnitIds, setRemoveUnitIds] = useState([]);
   const canEdit = hasPermission(user, 'inventory.edit');
+
+  useEffect(() => {
+    if (!item?.id) return;
+    getItemUnits(item.id).then(setUnits).catch(() => setUnits([]));
+  }, [item.id, item.totalQty]);
 
   const handleAdj = async (delta) => {
     const change = parseInt(adjChange, 10);
     if (isNaN(change) || change <= 0) return;
+    let unitIds;
+    if (delta < 0 && removeUnitIds.length) {
+      if (removeUnitIds.length !== change) {
+        toast('Select the same number of units as the qty you are removing', 'error');
+        return;
+      }
+      unitIds = removeUnitIds;
+    }
     setAdjusting(true);
     try {
-      await adjustStock(item.id, delta * change, adjReason);
+      await adjustStock(item.id, delta * change, adjReason, unitIds);
       toast(`Stock ${delta > 0 ? 'added' : 'removed'}`, 'success');
       setAdjChange('');
       setAdjReason('');
+      setRemoveUnitIds([]);
       onRefresh();
     } catch (e) {
       toast(e.message, 'error');
@@ -74,6 +92,7 @@ function OverviewTab({ item, customFieldDefs, onRefresh }) {
       {isLowStock && (
         <div className="flex items-center gap-2 bg-amber-900/30 border border-amber-700/40 rounded-lg px-4 py-2.5 text-sm text-amber-300">
           ⚠ Stock is at or below minimum ({item.totalQty}/{item.minStock})
+          <Link to={`/purchases?fromItem=${item.id}`} className="ml-auto text-xs text-indigo-300 hover:underline">Request purchase</Link>
         </div>
       )}
 
@@ -88,6 +107,37 @@ function OverviewTab({ item, customFieldDefs, onRefresh }) {
               </div>
             ))}
           </div>
+          {canEdit && (
+            <div className="flex gap-2 mt-3">
+              <input type="number" min="1" className="input w-20" value={kitQty} onChange={(e) => setKitQty(e.target.value)} />
+              <button
+                type="button"
+                className="btn-primary text-xs"
+                onClick={async () => {
+                  try {
+                    await assembleKit(item.id, parseInt(kitQty, 10) || 1);
+                    toast('Kit assembled', 'success');
+                    onRefresh();
+                  } catch (e) { toast(e.message, 'error'); }
+                }}
+              >
+                Assemble
+              </button>
+              <button
+                type="button"
+                className="btn-secondary text-xs"
+                onClick={async () => {
+                  try {
+                    await breakKit(item.id, parseInt(kitQty, 10) || 1);
+                    toast('Kit broken', 'success');
+                    onRefresh();
+                  } catch (e) { toast(e.message, 'error'); }
+                }}
+              >
+                Break
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -132,6 +182,24 @@ function OverviewTab({ item, customFieldDefs, onRefresh }) {
               onChange={(e) => setAdjReason(e.target.value)}
             />
           </div>
+          {units.length > 0 && (
+            <div className="mb-2 max-h-28 overflow-auto space-y-1">
+              <p className="text-[11px] text-gray-500">When removing, pick specific units or leave empty to drop unused units first.</p>
+              {units.map((u) => (
+                <label key={u.id} className="flex items-center gap-2 text-xs text-gray-400">
+                  <input
+                    type="checkbox"
+                    checked={removeUnitIds.includes(u.id)}
+                    onChange={(e) => setRemoveUnitIds((ids) => (
+                      e.target.checked ? [...ids, u.id] : ids.filter((id) => id !== u.id)
+                    ))}
+                  />
+                  <span className="font-mono">{u.unitSku}</span>
+                  {u.currentPerson && <span>· {u.currentPerson}</span>}
+                </label>
+              ))}
+            </div>
+          )}
           <div className="flex gap-2">
             <button onClick={() => handleAdj(1)} disabled={adjusting || !adjChange} className="btn-primary flex-1 text-xs">+ Add</button>
             <button onClick={() => handleAdj(-1)} disabled={adjusting || !adjChange} className="btn-danger flex-1 text-xs">– Remove</button>
@@ -378,7 +446,7 @@ function FilesTab({ item, onRefresh }) {
   );
 }
 
-function UnitsTab({ item }) {
+function UnitsTab({ item, locations }) {
   const [units, setUnits] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editUnit, setEditUnit] = useState(null);
@@ -413,6 +481,7 @@ function UnitsTab({ item }) {
       {editUnit && (
         <UnitManagerModal
           unit={editUnit}
+          locations={locations}
           onClose={() => setEditUnit(null)}
           onSuccess={async () => {
             const fresh = await getItemUnits(item.id);
@@ -432,6 +501,7 @@ export default function ItemDetailModal({ item: initialItem, locations, customFi
   const [conditionModalOpen, setConditionModalOpen] = useState(false);
   const { user } = useAuth();
   const canEdit = hasPermission(user, 'inventory.edit');
+  const canCond = canUpdateCondition(user);
 
   useEffect(() => {
     const handler = (e) => { if (e.key === 'Escape') onClose(); };
@@ -475,13 +545,11 @@ export default function ItemDetailModal({ item: initialItem, locations, customFi
             {item.itemNumber && <p className="text-xs text-gray-500">#{item.itemNumber}</p>}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            {canEdit && (
-              <>
-                <button onClick={() => setConditionModalOpen(true)} className="btn-secondary text-xs py-1 px-2">Update Condition</button>
-                {onEdit && <button onClick={() => onEdit(item)} className="btn-secondary text-xs py-1 px-2">Edit</button>}
-                {onDelete && <button onClick={() => onDelete(item)} className="btn-danger text-xs py-1 px-2">Delete</button>}
-              </>
+            {canCond && (
+              <button onClick={() => setConditionModalOpen(true)} className="btn-secondary text-xs py-1 px-2">Update Condition</button>
             )}
+            {canEdit && onEdit && <button onClick={() => onEdit(item)} className="btn-secondary text-xs py-1 px-2">Edit</button>}
+            {onDelete && <button onClick={() => onDelete(item)} className="btn-danger text-xs py-1 px-2">Delete</button>}
             <button onClick={onClose} className="btn-ghost text-lg">✕</button>
           </div>
         </div>
@@ -499,7 +567,7 @@ export default function ItemDetailModal({ item: initialItem, locations, customFi
           {tab === 'comments' && <CommentsTab item={item} onRefresh={refresh} />}
           {tab === 'history' && <HistoryTab item={item} />}
           {tab === 'files' && <FilesTab item={item} onRefresh={refresh} />}
-          {tab === 'units' && <UnitsTab item={item} />}
+          {tab === 'units' && <UnitsTab item={item} locations={locations} />}
         </div>
       </div>
 

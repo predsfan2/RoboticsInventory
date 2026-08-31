@@ -63,6 +63,10 @@ function migrateData(data) {
         console.log('[migration] Expanded legacy finance permissions for user: ' + u.name);
       }
     }
+    if (u.tokenVersion == null) u.tokenVersion = 0;
+    if (u.mustChangePassword == null) {
+      u.mustChangePassword = u.role === 'Admin' ? false : false;
+    }
     return u;
   });
 
@@ -127,6 +131,10 @@ function migrateData(data) {
     if (!p.notes) p.notes = '';
     if (!p.requester) p.requester = '';
     if (!p.date) p.date = new Date().toISOString();
+    if (p.estimatedCost == null) p.estimatedCost = 0;
+    if (!p.vendor) p.vendor = '';
+    if (p.linkedItemId === undefined) p.linkedItemId = null;
+    if (!p.receiveLocation) p.receiveLocation = '';
     return p;
   });
 
@@ -136,6 +144,8 @@ function migrateData(data) {
     if (!b.notes) b.notes = '';
     if (!b.createdAt) b.createdAt = new Date().toISOString();
     if (b.returnedAt === undefined) b.returnedAt = null;
+    if (b.qty == null) b.qty = 1;
+    if (!Array.isArray(b.unitIds)) b.unitIds = [];
     return b;
   });
 
@@ -165,6 +175,38 @@ function migrateData(data) {
     if (f.targetAmount === undefined) f.targetAmount = 0;
     if (f.actualAmount === undefined) f.actualAmount = 0;
     return f;
+  });
+
+  data['rt:locs'] = (data['rt:locs'] || []).map(function (l) {
+    if (l.parentId === undefined) l.parentId = null;
+    if (l.startDate === undefined) l.startDate = null;
+    if (l.endDate === undefined) l.endDate = null;
+    return l;
+  });
+
+  data['rt:reimbursements'] = (data['rt:reimbursements'] || []).map(function (r) {
+    if (r.transactionId === undefined) r.transactionId = null;
+    return r;
+  });
+
+  // Backfill donation.transactionId by matching fundraiser + amount + date
+  var txns = data['rt:accountingTransactions'] || [];
+  data['rt:fundraisers'].forEach(function (f) {
+    (f.donations || []).forEach(function (d) {
+      if (d.transactionId) return;
+      var match = txns.find(function (t) {
+        if (t.linkedFundraiserId !== f.id) return false;
+        if (t.type !== 'FundraiserIncome') return false;
+        if ((t.amount || 0) !== (d.amount || 0)) return false;
+        var td = String(t.date || '').slice(0, 10);
+        var dd = String(d.date || '').slice(0, 10);
+        return !td || !dd || td === dd;
+      });
+      if (match) {
+        d.transactionId = match.id;
+        match.linkedDonationId = d.id;
+      }
+    });
   });
 
   return data;

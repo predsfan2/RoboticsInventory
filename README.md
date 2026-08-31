@@ -3,6 +3,8 @@
 A full-stack inventory and accounting system for robotics teams.
 Dark-themed React frontend (Vite + Tailwind) + Node/Express backend with a flat-file JSON database.
 
+Every screen, button, modal, permission, and API is catalogued in **[FEATURES.md](./FEATURES.md)**. Gaps and follow-on ideas are in **[FEATURE-GAPS.md](./FEATURE-GAPS.md)**.
+
 ---
 
 ## Quick Start (Docker)
