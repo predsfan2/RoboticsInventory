@@ -52,3 +52,10 @@ export function canViewFinanceOverview(user) {
 export function getDefaultPermissions(role) {
   return [...(ROLE_DEFAULT_PERMISSIONS[role] || [])];
 }
+
+/** Matches backend requireConditionUpdate: edit, or view and not Viewer. */
+export function canUpdateCondition(user) {
+  if (!user) return false;
+  if (hasPermission(user, 'inventory.edit')) return true;
+  return hasPermission(user, 'inventory.view') && user.role !== 'Viewer';
+}

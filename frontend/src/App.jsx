@@ -1,5 +1,5 @@
 import React, { useState, useEffect, createContext, useContext, useCallback } from 'react';
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import Layout from './components/Layout';
 import Login from './components/Login';
 import Toaster from './components/Toaster';
@@ -17,6 +17,8 @@ import ActivityLog from './pages/ActivityLog';
 import Finance from './pages/Finance';
 import CustomFields from './pages/CustomFields';
 import HubPair from './pages/HubPair';
+import Account from './pages/Account';
+import PrintLabels from './pages/PrintLabels';
 import { hasPermission, hasAnyPermission } from './lib/permissions';
 import { FINANCE_PERMISSIONS } from './lib/constants';
 import {
@@ -66,11 +68,12 @@ export default function App() {
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const toast = useToastState();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const signIn = useCallback((userData, token) => {
     setSession(userData, token);
     setUser(userData);
-    navigate('/dashboard');
+    navigate(userData?.mustChangePassword ? '/account' : '/dashboard');
   }, [navigate]);
 
   const signOut = useCallback(async () => {
@@ -102,7 +105,7 @@ export default function App() {
   const perm = (p) => ({ permission: p, user });
 
   return (
-    <AuthContext.Provider value={{ user, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, setUser, signIn, signOut }}>
       <ToastContext.Provider value={toast.push}>
         <Toaster toasts={toast.toasts} dismiss={toast.dismiss} />
         {globalSearchOpen && (
@@ -114,11 +117,18 @@ export default function App() {
             path="/*"
             element={
               user ? (
+                user.mustChangePassword && location.pathname !== '/account' ? (
+                  <Navigate to="/account" replace />
+                ) : (
                 <Layout onOpenSearch={() => setGlobalSearchOpen(true)}>
                   <Routes>
                     <Route path="/dashboard" element={<Dashboard />} />
+                    <Route path="/account" element={<Account />} />
                     <Route path="/inventory" element={
                       <PermRoute {...perm('inventory.view')}><Inventory /></PermRoute>
+                    } />
+                    <Route path="/inventory/labels" element={
+                      <PermRoute {...perm('inventory.view')}><PrintLabels /></PermRoute>
                     } />
                     <Route path="/whereabouts" element={
                       <PermRoute {...perm('inventory.view')}><Whereabouts /></PermRoute>
@@ -156,6 +166,7 @@ export default function App() {
                     <Route path="*" element={<Navigate to="/dashboard" />} />
                   </Routes>
                 </Layout>
+                )
               ) : (
                 <Navigate to="/login" />
               )

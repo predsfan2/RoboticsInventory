@@ -4,7 +4,7 @@ const express = require('express');
 const router = express.Router();
 const { readData, writeData } = require('../utils/storage');
 const { requirePermission } = require('../utils/auth');
-const { createBorrow, returnBorrow } = require('../services/borrows');
+const { createBorrow, returnBorrow, deleteBorrow } = require('../services/borrows');
 const { sendDomainError } = require('../services/errors');
 
 function asyncHandler(fn) {
@@ -48,12 +48,12 @@ router.put('/:id', requirePermission('borrows.manage'), asyncHandler(async (req,
 }));
 
 router.delete('/:id', requirePermission('borrows.manage'), asyncHandler(async (req, res) => {
-  const data = readData();
-  const idx = (data['rt:borrows'] || []).findIndex((x) => x.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Borrow not found' });
-  data['rt:borrows'].splice(idx, 1);
-  await writeData(data);
-  res.json({ success: true });
+  try {
+    const result = await deleteBorrow(req.params.id, req.user);
+    res.json(result);
+  } catch (err) {
+    return sendDomainError(res, err);
+  }
 }));
 
 router.post('/:id/return', requirePermission('borrows.manage'), asyncHandler(async (req, res) => {

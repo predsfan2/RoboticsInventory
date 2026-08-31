@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createMoveRequest } from '../lib/api';
-import { useToast } from '../App';
+import LocationSelect from '../components/LocationSelect';
 
 export default function MoveRequestModal({ item, locations, onClose, onSuccess }) {
   const toast = useToast();
@@ -44,16 +44,11 @@ export default function MoveRequestModal({ item, locations, onClose, onSuccess }
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
             <label className="block text-xs text-gray-400 mb-1">Requested Location</label>
-            <select
-              className="input"
+            <LocationSelect
+              locations={locations}
               value={form.requestedLocation}
-              onChange={(e) => setForm((f) => ({ ...f, requestedLocation: e.target.value }))}
-            >
-              <option value="">Select…</option>
-              {locations.map((l) => (
-                <option key={l.id} value={l.name}>{l.name}</option>
-              ))}
-            </select>
+              onChange={(v) => setForm((f) => ({ ...f, requestedLocation: v }))}
+            />
           </div>
           <div>
             <label className="block text-xs text-gray-400 mb-1">Assign To Person</label>

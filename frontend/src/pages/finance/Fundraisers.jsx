@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getFundraisers, createFundraiser, updateFundraiser, deleteFundraiser, addDonation, addQuickTotal } from '../../lib/api';
+import { getFundraisers, createFundraiser, updateFundraiser, deleteFundraiser, addDonation, addQuickTotal, updateDonation, deleteDonation } from '../../lib/api';
 import { useAuth, useToast } from '../../App';
 import { hasPermission } from '../../lib/permissions';
 import ConfirmDialog from '../../components/ConfirmDialog';
@@ -140,10 +140,13 @@ function QuickTotalModal({ fundraiser, onClose, onSuccess }) {
 }
 
 // ── Individual Donation modal ─────────────────────────────────────────────────
-function DonationModal({ fundraiser, onClose, onSuccess }) {
+function DonationModal({ fundraiser, initial, onClose, onSuccess }) {
   const toast = useToast();
   const [form, setForm] = useState({
-    donor: '', amount: '', date: new Date().toISOString().slice(0, 10), notes: '',
+    donor: initial?.donor || '',
+    amount: initial ? String(initial.amount ?? '') : '',
+    date: initial?.date ? String(initial.date).slice(0, 10) : new Date().toISOString().slice(0, 10),
+    notes: initial?.notes || '',
   });
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -152,8 +155,14 @@ function DonationModal({ fundraiser, onClose, onSuccess }) {
     e.preventDefault();
     setSaving(true);
     try {
-      await addDonation(fundraiser.id, { ...form, amount: parseFloat(form.amount) || 0 });
-      toast('Donation recorded', 'success');
+      const body = { ...form, amount: parseFloat(form.amount) || 0 };
+      if (initial?.id) {
+        await updateDonation(fundraiser.id, initial.id, body);
+        toast('Entry updated', 'success');
+      } else {
+        await addDonation(fundraiser.id, body);
+        toast('Donation recorded', 'success');
+      }
       onSuccess();
     } catch (err) { toast(err.message, 'error'); }
     finally { setSaving(false); }
@@ -163,7 +172,7 @@ function DonationModal({ fundraiser, onClose, onSuccess }) {
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-panel max-w-sm p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">Add Donation</h2>
+          <h2 className="text-lg font-semibold">{initial ? 'Edit Entry' : 'Add Donation'}</h2>
           <button onClick={onClose} className="btn-ghost">✕</button>
         </div>
         <p className="text-sm text-gray-400 mb-4">Fundraiser: <strong className="text-gray-200">{fundraiser.name}</strong></p>
@@ -207,6 +216,7 @@ export default function Fundraisers() {
   const [donationTarget, setDonationTarget]     = useState(null);
   const [quickTotalTarget, setQuickTotalTarget] = useState(null);
   const [deleteTarget, setDeleteTarget]         = useState(null);
+  const [editDonation, setEditDonation]         = useState(null);
   const [expanded, setExpanded]                 = useState({});
 
   const canEdit = hasPermission(user, 'finance.fundraisers.edit');
@@ -324,6 +334,15 @@ export default function Fundraisers() {
                             <span className="font-semibold text-emerald-400 text-sm tabular-nums md:text-right">
                               {formatMoney(d.amount)}
                             </span>
+                            {canEdit && (
+                              <div className="flex gap-2 md:col-span-3 justify-end">
+                                <button type="button" className="btn-ghost text-xs" onClick={() => setEditDonation({ fundraiser: f, donation: d })}>Edit</button>
+                                <button type="button" className="btn-ghost text-xs text-red-500" onClick={async () => {
+                                  try { await deleteDonation(f.id, d.id); toast('Entry deleted', 'success'); load(); }
+                                  catch (e) { toast(e.message, 'error'); }
+                                }}>Delete</button>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -364,8 +383,16 @@ export default function Fundraisers() {
         />
       )}
       {deleteTarget && (
-        <ConfirmDialog title="Delete Fundraiser" message={`Delete "${deleteTarget.name}" and all entries?`}
+        <ConfirmDialog title="Delete Fundraiser" message={`Delete "${deleteTarget.name}" and all linked FundraiserIncome transactions?`}
           confirmLabel="Delete" dangerous onConfirm={handleDelete} onCancel={() => setDeleteTarget(null)} />
+      )}
+      {editDonation && (
+        <DonationModal
+          fundraiser={editDonation.fundraiser}
+          initial={editDonation.donation}
+          onClose={() => setEditDonation(null)}
+          onSuccess={() => { setEditDonation(null); load(); }}
+        />
       )}
     </div>
   );

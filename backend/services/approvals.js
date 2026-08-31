@@ -4,6 +4,8 @@ const { v4: uuidv4 } = require('uuid');
 const { withData, readData } = require('../utils/storage');
 const { activityLog } = require('../utils/logging');
 const { DomainError } = require('./errors');
+const { applyMoveInData } = require('./inventory');
+const { approvePurchase, denyPurchase } = require('./purchases');
 
 function listPending() {
   const data = readData() || {};
@@ -13,11 +15,35 @@ function listPending() {
   const reimbursements = (data['rt:reimbursements'] || [])
     .filter((r) => r.status === 'pending')
     .map((r) => ({ ...r, approvalType: 'reimbursement' }));
+  const purchases = (data['rt:purchases'] || [])
+    .filter((p) => p.status === 'PendingApproval')
+    .map((p) => ({ ...p, approvalType: 'purchase' }));
   return {
     moveRequests,
     reimbursements,
-    total: moveRequests.length + reimbursements.length,
+    purchases,
+    total: moveRequests.length + reimbursements.length + purchases.length,
   };
+}
+
+function listHistory() {
+  const data = readData() || {};
+  const moves = (data['rt:moveRequests'] || [])
+    .filter((m) => m.status === 'approved' || m.status === 'denied')
+    .map((m) => ({ ...m, approvalType: 'moveRequest' }));
+  const reimbursements = (data['rt:reimbursements'] || [])
+    .filter((r) => r.status === 'approved' || r.status === 'denied' || r.status === 'voided')
+    .map((r) => ({ ...r, approvalType: 'reimbursement' }));
+  const purchases = (data['rt:purchases'] || [])
+    .filter((p) => p.approvedAt && (p.status === 'Needed' || p.status === 'Denied' || p.status === 'Ordered' || p.status === 'Received'))
+    .map((p) => ({
+      ...p,
+      status: p.status === 'Denied' ? 'denied' : 'approved',
+      approvalType: 'purchase',
+    }));
+  const all = [...moves, ...reimbursements, ...purchases]
+    .sort((a, b) => String(b.approvedAt || '').localeCompare(String(a.approvedAt || '')));
+  return { items: all, total: all.length };
 }
 
 async function approveMove(id, user) {
@@ -32,19 +58,14 @@ async function approveMove(id, user) {
 
     const item = (data['rt:items'] || []).find((i) => i.id === mr.itemId);
     if (item) {
-      item.currentLocation = mr.requestedLocation || item.currentLocation;
-      item.currentPerson = mr.requestedPerson !== undefined ? mr.requestedPerson : item.currentPerson;
-      if (!Array.isArray(item.locationLog)) item.locationLog = [];
-      item.locationLog.push({
-        id: uuidv4(),
-        location: item.currentLocation,
-        person: item.currentPerson,
-        movedBy: user ? user.name : 'system',
+      applyMoveInData(data, item.id, {
+        location: mr.requestedLocation,
+        person: mr.requestedPerson,
         notes: mr.notes || '',
-        date: new Date().toISOString(),
-      });
+        unitIds: mr.unitIds,
+      }, user);
       activityLog(data, 'MOVE_APPROVED', user, item.id, item.name,
-        `Move request approved. Moved to "${item.currentLocation}"`);
+        `Move request approved. Moved to "${mr.requestedLocation}"`);
     }
     return mr;
   });
@@ -77,7 +98,7 @@ async function approveReimbursement(id, user) {
     reimb.approvedBy = user ? user.name : 'system';
     reimb.approvedAt = new Date().toISOString();
     if (!data['rt:accountingTransactions']) data['rt:accountingTransactions'] = [];
-    data['rt:accountingTransactions'].push({
+    const txn = {
       id: uuidv4(),
       type: 'Reimbursement',
       date: new Date().toISOString(),
@@ -86,7 +107,9 @@ async function approveReimbursement(id, user) {
       category: 'Reimbursement',
       receiptUrl: reimb.receiptUrl,
       linkedReimbursementId: reimb.id,
-    });
+    };
+    data['rt:accountingTransactions'].push(txn);
+    reimb.transactionId = txn.id;
     return reimb;
   });
 }
@@ -116,11 +139,16 @@ async function decide({ id, type, decision, reason }, user) {
     if (action === 'approve') return approveReimbursement(id, user);
     if (action === 'deny') return denyReimbursement(id, reason, user);
   }
-  throw new DomainError('type must be move or reimbursement, decision must be approve or deny');
+  if (kind === 'purchase' || kind === 'po') {
+    if (action === 'approve') return approvePurchase(id, user);
+    if (action === 'deny') return denyPurchase(id, reason, user);
+  }
+  throw new DomainError('type must be move, reimbursement, or purchase; decision must be approve or deny');
 }
 
 module.exports = {
   listPending,
+  listHistory,
   approveMove,
   denyMove,
   approveReimbursement,

@@ -1,10 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getItems, getLocations, moveItemDirect } from '../lib/api';
+import { getItems, getLocations, moveItemDirect, bulkMoveFromLocation, updateItem, deleteItem } from '../lib/api';
 import { useAuth, useToast } from '../App';
 import { hasPermission } from '../lib/permissions';
 import { CONDITION_COLORS } from '../lib/constants';
+import { locationLabel, isLocationActive, sortLocationsTree } from '../lib/locations';
 import MoveRequestModal from '../modals/MoveRequestModal';
 import ItemDetailModal from '../modals/ItemDetailModal';
+import LocationSelect from '../components/LocationSelect';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { ItemFormModal } from './Inventory';
 
 function DirectMoveModal({ item, locations, onSave, onClose }) {
   const [form, setForm] = useState({ location: '', person: item.currentPerson || '', notes: '' });
@@ -18,10 +22,7 @@ function DirectMoveModal({ item, locations, onSave, onClose }) {
         <div className="space-y-3">
           <div>
             <label className="block text-xs text-gray-400 mb-1">New Location</label>
-            <select className="input" value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}>
-              <option value="">Select…</option>
-              {locations.map((l) => <option key={l.id} value={l.name}>{l.name}</option>)}
-            </select>
+            <LocationSelect locations={locations} value={form.location} onChange={(v) => setForm((f) => ({ ...f, location: v }))} />
           </div>
           <div>
             <label className="block text-xs text-gray-400 mb-1">Assigned Person</label>
@@ -50,6 +51,46 @@ function DirectMoveModal({ item, locations, onSave, onClose }) {
   );
 }
 
+function BulkLoadoutModal({ fromLoc, locations, onClose, onSuccess }) {
+  const toast = useToast();
+  const [toLocation, setToLocation] = useState('');
+  const [notes, setNotes] = useState('Bulk load-out');
+  const [saving, setSaving] = useState(false);
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-panel max-w-sm p-6">
+        <h2 className="text-lg font-semibold mb-3">Move all from {fromLoc.name}</h2>
+        <div className="space-y-3">
+          <LocationSelect locations={locations.filter((l) => l.id !== fromLoc.id)} value={toLocation} onChange={setToLocation} />
+          <input className="input" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes" />
+          <div className="flex justify-end gap-2">
+            <button onClick={onClose} className="btn-secondary">Cancel</button>
+            <button
+              disabled={saving || !toLocation}
+              className="btn-primary"
+              onClick={async () => {
+                setSaving(true);
+                try {
+                  const result = await bulkMoveFromLocation(fromLoc.id, { toLocation, notes });
+                  toast(`${result.count} item(s) ${result.results?.[0]?.mode === 'requested' ? 'requested' : 'moved'}`, 'success');
+                  onSuccess();
+                } catch (e) {
+                  toast(e.message, 'error');
+                } finally {
+                  setSaving(false);
+                }
+              }}
+            >
+              {saving ? 'Working…' : 'Move all'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Whereabouts() {
   const { user } = useAuth();
   const toast = useToast();
@@ -60,8 +101,14 @@ export default function Whereabouts() {
   const [directMoveItem, setDirectMoveItem] = useState(null);
   const [detailItem, setDetailItem] = useState(null);
   const [expandedGroups, setExpandedGroups] = useState({});
+  const [loadoutLoc, setLoadoutLoc] = useState(null);
+  const [editItem, setEditItem] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
   const canMove = hasPermission(user, 'moves.approve');
+  const canRequestMove = hasPermission(user, 'moves.request');
+  const canEdit = hasPermission(user, 'inventory.edit');
+  const canDelete = hasPermission(user, 'inventory.delete');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -69,11 +116,8 @@ export default function Whereabouts() {
       .then(([it, locs]) => {
         setItems(it);
         setLocations(locs);
-        // Expand all groups by default
         const groups = {};
-        const seen = new Set();
-        it.forEach((i) => { seen.add(i.currentLocation || ''); });
-        seen.forEach((loc) => { groups[loc] = true; });
+        it.forEach((i) => { groups[i.currentLocation || ''] = true; });
         setExpandedGroups(groups);
       })
       .catch((e) => toast(e.message, 'error'))
@@ -82,7 +126,10 @@ export default function Whereabouts() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Group by location
+  const today = new Date().toISOString().slice(0, 10);
+  const tree = sortLocationsTree(locations);
+  const visibleLocs = tree.filter((l) => isLocationActive(l, today) || items.some((i) => i.currentLocation === l.name));
+
   const grouped = {};
   items.forEach((item) => {
     const loc = item.currentLocation || '';
@@ -90,10 +137,13 @@ export default function Whereabouts() {
     grouped[loc].push(item);
   });
 
-  // Sort groups: known locations first (in order), then unknowns
-  const knownLocNames = locations.map((l) => l.name);
+  const knownLocNames = visibleLocs.map((l) => l.name);
+  const parentThenChild = [];
+  visibleLocs.forEach((l) => {
+    if (grouped[l.name]) parentThenChild.push(l.name);
+  });
   const groupKeys = [
-    ...knownLocNames.filter((n) => grouped[n]),
+    ...parentThenChild,
     ...Object.keys(grouped).filter((k) => k && !knownLocNames.includes(k)).sort(),
     ...(grouped[''] ? [''] : []),
   ];
@@ -112,27 +162,35 @@ export default function Whereabouts() {
       {groupKeys.map((loc) => {
         const group = grouped[loc] || [];
         const isExpanded = expandedGroups[loc] !== false;
-        const displayName = loc || 'No Location';
+        const locRow = locations.find((l) => l.name === loc);
+        const displayName = locRow ? locationLabel(locRow, locations) : (loc || 'No Location');
 
         return (
-          <div key={loc} className="card overflow-hidden">
-            {/* Group header */}
-            <button
-              onClick={() => toggle(loc)}
-              className="w-full flex items-center gap-3 px-4 py-3 bg-gray-800/50 hover:bg-gray-800 transition-colors text-left"
-            >
-              <span className="text-xl">{loc ? '📍' : '❓'}</span>
-              <div className="flex-1">
-                <span className="font-semibold text-gray-200">{displayName}</span>
-                {!knownLocNames.includes(loc) && loc && (
-                  <span className="ml-2 text-xs text-amber-500">Unknown location</span>
-                )}
-              </div>
-              <span className="text-xs text-gray-500 bg-gray-700 rounded-full px-2 py-0.5">{group.length}</span>
-              <span className="text-gray-600 text-sm">{isExpanded ? '▾' : '▸'}</span>
-            </button>
+          <div key={loc || 'none'} className="card overflow-hidden">
+            <div className="w-full flex items-center gap-3 px-4 py-3 bg-gray-800/50">
+              <button onClick={() => toggle(loc)} className="flex-1 flex items-center gap-3 text-left hover:opacity-90">
+                <span className="text-xl">{loc ? '📍' : '❓'}</span>
+                <div className="flex-1">
+                  <span className="font-semibold text-gray-200">{displayName}</span>
+                  {loc && !locRow && <span className="ml-2 text-xs text-amber-500">Unknown location</span>}
+                  {locRow && !isLocationActive(locRow, today) && (
+                    <span className="ml-2 text-xs text-amber-500">Outside date range</span>
+                  )}
+                </div>
+                <span className="text-xs text-gray-500 bg-gray-700 rounded-full px-2 py-0.5">{group.length}</span>
+                <span className="text-gray-600 text-sm">{isExpanded ? '▾' : '▸'}</span>
+              </button>
+              {locRow && (canMove || canRequestMove) && (
+                <button
+                  type="button"
+                  className="btn-secondary text-xs py-1 px-2"
+                  onClick={() => setLoadoutLoc(locRow)}
+                >
+                  Move all to…
+                </button>
+              )}
+            </div>
 
-            {/* Items */}
             {isExpanded && (
               <div>
                 {group.map((item) => (
@@ -157,13 +215,15 @@ export default function Whereabouts() {
                       <span className="text-sm font-medium text-gray-400">×{item.totalQty}</span>
                     </div>
                     <div className="flex gap-1 flex-shrink-0">
-                      <button
-                        onClick={() => setMoveReqItem(item)}
-                        className="btn-secondary text-xs py-1 px-2"
-                        title="Request move"
-                      >
-                        📍
-                      </button>
+                      {canRequestMove && (
+                        <button
+                          onClick={() => setMoveReqItem(item)}
+                          className="btn-secondary text-xs py-1 px-2"
+                          title="Request move"
+                        >
+                          📍
+                        </button>
+                      )}
                       {canMove && (
                         <button
                           onClick={() => setDirectMoveItem(item)}
@@ -210,12 +270,42 @@ export default function Whereabouts() {
           onClose={() => setDirectMoveItem(null)}
         />
       )}
+      {loadoutLoc && (
+        <BulkLoadoutModal
+          fromLoc={loadoutLoc}
+          locations={locations}
+          onClose={() => setLoadoutLoc(null)}
+          onSuccess={() => { setLoadoutLoc(null); load(); }}
+        />
+      )}
       {detailItem && (
         <ItemDetailModal
           item={detailItem}
           locations={locations}
           onClose={() => setDetailItem(null)}
           onRefresh={load}
+          onEdit={canEdit ? (i) => { setDetailItem(null); setEditItem(i); } : undefined}
+          onDelete={canDelete ? (i) => { setDetailItem(null); setDeleteTarget(i); } : undefined}
+        />
+      )}
+      {editItem && (
+        <ItemFormModal
+          initial={editItem}
+          locations={locations}
+          allItems={items}
+          customFieldDefs={[]}
+          onSave={async (form) => { await updateItem(editItem.id, form); toast('Item updated', 'success'); load(); }}
+          onClose={() => setEditItem(null)}
+        />
+      )}
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete Item"
+          message={`Permanently delete "${deleteTarget.name}"?`}
+          confirmLabel="Delete"
+          dangerous
+          onConfirm={async () => { await deleteItem(deleteTarget.id); setDeleteTarget(null); toast('Deleted', 'success'); load(); }}
+          onCancel={() => setDeleteTarget(null)}
         />
       )}
     </div>

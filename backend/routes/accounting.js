@@ -7,7 +7,16 @@ const { readData, writeData } = require('../utils/storage');
 const { requirePermission } = require('../utils/auth');
 const { saveBase64Upload, RECEIPT_MIMES } = require('../utils/uploads');
 const { hasPermission } = require('../utils/permissions');
-const { createTransaction, getBalance } = require('../services/finance');
+const {
+  createTransaction,
+  getBalance,
+  deleteTransaction,
+  deleteGoal,
+  deleteFundraiser,
+  deleteReimbursement,
+  updateDonation,
+  deleteDonation,
+} = require('../services/finance');
 const { approveReimbursement, denyReimbursement } = require('../services/approvals');
 const { sendDomainError } = require('../services/errors');
 
@@ -217,12 +226,12 @@ router.put('/transactions/:id', requirePermission('finance.transactions.edit'), 
 }));
 
 router.delete('/transactions/:id', requirePermission('finance.transactions.edit'), asyncHandler(async (req, res) => {
-  const data = readData();
-  const idx = (data['rt:accountingTransactions'] || []).findIndex((t) => t.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Transaction not found' });
-  data['rt:accountingTransactions'].splice(idx, 1);
-  await writeData(data);
-  res.json({ success: true });
+  try {
+    const result = await deleteTransaction(req.params.id);
+    res.json(result);
+  } catch (err) {
+    return sendDomainError(res, err);
+  }
 }));
 
 router.get('/budgets', requirePermission('finance.budget.view'), (req, res) => {
@@ -312,12 +321,12 @@ router.put('/goals/:id', requirePermission('finance.goals.edit'), asyncHandler(a
 }));
 
 router.delete('/goals/:id', requirePermission('finance.goals.edit'), asyncHandler(async (req, res) => {
-  const data = readData();
-  const idx = (data['rt:savingsGoals'] || []).findIndex((g) => g.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Goal not found' });
-  data['rt:savingsGoals'].splice(idx, 1);
-  await writeData(data);
-  res.json({ success: true });
+  try {
+    const result = await deleteGoal(req.params.id);
+    res.json(result);
+  } catch (err) {
+    return sendDomainError(res, err);
+  }
 }));
 
 router.post('/goals/:id/add-funds', requirePermission('finance.goals.edit'), asyncHandler(async (req, res) => {
@@ -417,12 +426,12 @@ router.post('/reimbursements/:id/deny', requirePermission('finance.reimbursement
 }));
 
 router.delete('/reimbursements/:id', requirePermission('finance.reimbursements.approve'), asyncHandler(async (req, res) => {
-  const data = readData();
-  const idx = (data['rt:reimbursements'] || []).findIndex((r) => r.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Reimbursement not found' });
-  data['rt:reimbursements'].splice(idx, 1);
-  await writeData(data);
-  res.json({ success: true });
+  try {
+    const result = await deleteReimbursement(req.params.id);
+    res.json(result);
+  } catch (err) {
+    return sendDomainError(res, err);
+  }
 }));
 
 router.get('/fundraisers', requirePermission('finance.fundraisers.view'), (req, res) => {
@@ -458,12 +467,12 @@ router.put('/fundraisers/:id', requirePermission('finance.fundraisers.edit'), as
 }));
 
 router.delete('/fundraisers/:id', requirePermission('finance.fundraisers.edit'), asyncHandler(async (req, res) => {
-  const data = readData();
-  const idx = (data['rt:fundraisers'] || []).findIndex((f) => f.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Fundraiser not found' });
-  data['rt:fundraisers'].splice(idx, 1);
-  await writeData(data);
-  res.json({ success: true });
+  try {
+    const result = await deleteFundraiser(req.params.id);
+    res.json(result);
+  } catch (err) {
+    return sendDomainError(res, err);
+  }
 }));
 
 router.post('/fundraisers/:id/donations', requirePermission('finance.fundraisers.edit'), asyncHandler(async (req, res) => {
@@ -482,7 +491,7 @@ router.post('/fundraisers/:id/donations', requirePermission('finance.fundraisers
   fundraiser.actualAmount = (fundraiser.actualAmount || 0) + donation.amount;
 
   if (!data['rt:accountingTransactions']) data['rt:accountingTransactions'] = [];
-  data['rt:accountingTransactions'].push({
+  const txn = {
     id: uuidv4(),
     type: 'FundraiserIncome',
     date: donation.date,
@@ -491,10 +500,31 @@ router.post('/fundraisers/:id/donations', requirePermission('finance.fundraisers
     category: 'Fundraiser',
     receiptUrl: '',
     linkedFundraiserId: fundraiser.id,
-  });
+    linkedDonationId: donation.id,
+  };
+  data['rt:accountingTransactions'].push(txn);
+  donation.transactionId = txn.id;
 
   await writeData(data);
   res.status(201).json(donation);
+}));
+
+router.put('/fundraisers/:id/donations/:donationId', requirePermission('finance.fundraisers.edit'), asyncHandler(async (req, res) => {
+  try {
+    const donation = await updateDonation(req.params.id, req.params.donationId, req.body || {});
+    res.json(donation);
+  } catch (err) {
+    return sendDomainError(res, err);
+  }
+}));
+
+router.delete('/fundraisers/:id/donations/:donationId', requirePermission('finance.fundraisers.edit'), asyncHandler(async (req, res) => {
+  try {
+    const result = await deleteDonation(req.params.id, req.params.donationId);
+    res.json(result);
+  } catch (err) {
+    return sendDomainError(res, err);
+  }
 }));
 
 router.post('/fundraisers/:id/quick-total', requirePermission('finance.fundraisers.edit'), asyncHandler(async (req, res) => {
@@ -519,7 +549,7 @@ router.post('/fundraisers/:id/quick-total', requirePermission('finance.fundraise
   fundraiser.actualAmount = (fundraiser.actualAmount || 0) + amount;
 
   if (!data['rt:accountingTransactions']) data['rt:accountingTransactions'] = [];
-  data['rt:accountingTransactions'].push({
+  const txn = {
     id: uuidv4(),
     type: 'FundraiserIncome',
     date,
@@ -528,7 +558,10 @@ router.post('/fundraisers/:id/quick-total', requirePermission('finance.fundraise
     category: 'Fundraiser',
     receiptUrl: '',
     linkedFundraiserId: fundraiser.id,
-  });
+    linkedDonationId: entry.id,
+  };
+  data['rt:accountingTransactions'].push(txn);
+  entry.transactionId = txn.id;
 
   await writeData(data);
   res.status(201).json(entry);

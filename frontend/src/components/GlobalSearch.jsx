@@ -1,28 +1,48 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getItems, getPurchases, getBorrows } from '../lib/api';
+import { getItems, getPurchases, getBorrows, getLocations, getTransactions, getFundraisers } from '../lib/api';
 import { CONDITION_COLORS } from '../lib/constants';
+import { locationLabel } from '../lib/locations';
 
 export default function GlobalSearch({ onClose, navigate }) {
   const [query, setQuery] = useState('');
   const [allItems, setAllItems] = useState([]);
   const [allPurchases, setAllPurchases] = useState([]);
   const [allBorrows, setAllBorrows] = useState([]);
-  const [results, setResults] = useState({ items: [], purchases: [], borrows: [] });
+  const [allLocations, setAllLocations] = useState([]);
+  const [allTxns, setAllTxns] = useState([]);
+  const [allFundraisers, setAllFundraisers] = useState([]);
+  const [results, setResults] = useState({ items: [], purchases: [], borrows: [], locations: [], finance: [] });
   const [selected, setSelected] = useState(0);
   const [loading, setLoading] = useState(true);
   const inputRef = useRef(null);
 
   useEffect(() => {
     inputRef.current?.focus();
-    Promise.all([getItems(), getPurchases(), getBorrows()])
-      .then(([its, pur, bor]) => { setAllItems(its); setAllPurchases(pur); setAllBorrows(bor); })
-      .catch(() => {})
+    Promise.all([
+      getItems().catch(() => []),
+      getPurchases().catch(() => []),
+      getBorrows().catch(() => []),
+      getLocations().catch(() => []),
+      getTransactions().catch(() => []),
+      getFundraisers().catch(() => []),
+    ])
+      .then(([its, pur, bor, locs, txns, fr]) => {
+        setAllItems(its || []);
+        setAllPurchases(pur || []);
+        setAllBorrows(bor || []);
+        setAllLocations(locs || []);
+        setAllTxns(txns || []);
+        setAllFundraisers(fr || []);
+      })
       .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
     const q = query.trim().toLowerCase();
-    if (!q) { setResults({ items: [], purchases: [], borrows: [] }); return; }
+    if (!q) {
+      setResults({ items: [], purchases: [], borrows: [], locations: [], finance: [] });
+      return;
+    }
 
     const items = allItems.filter((i) =>
       i.name.toLowerCase().includes(q) ||
@@ -33,34 +53,52 @@ export default function GlobalSearch({ onClose, navigate }) {
     ).slice(0, 5);
 
     const purchases = allPurchases.filter((p) =>
-      p.name.toLowerCase().includes(q) ||
+      (p.name || '').toLowerCase().includes(q) ||
       (p.category || '').toLowerCase().includes(q) ||
-      (p.notes || '').toLowerCase().includes(q)
+      (p.notes || '').toLowerCase().includes(q) ||
+      (p.vendor || '').toLowerCase().includes(q)
     ).slice(0, 3);
 
     const borrows = allBorrows.filter((b) => {
       const item = allItems.find((i) => i.id === b.itemId);
       return (
         (item?.name || '').toLowerCase().includes(q) ||
-        b.borrowerName.toLowerCase().includes(q)
+        (b.borrowerName || '').toLowerCase().includes(q)
       );
     }).slice(0, 3);
 
-    setResults({ items, purchases, borrows });
-    setSelected(0);
-  }, [query, allItems, allPurchases, allBorrows]);
+    const locations = allLocations.filter((l) =>
+      (l.name || '').toLowerCase().includes(q) ||
+      locationLabel(l, allLocations).toLowerCase().includes(q)
+    ).slice(0, 3);
 
-  // Flat list for keyboard nav
+    const finance = [
+      ...allTxns.filter((t) => (t.description || '').toLowerCase().includes(q)).slice(0, 3)
+        .map((t) => ({ ...t, _kind: 'txn' })),
+      ...allFundraisers.filter((f) => (f.name || '').toLowerCase().includes(q)).slice(0, 2)
+        .map((f) => ({ ...f, _kind: 'fundraiser' })),
+    ];
+
+    setResults({ items, purchases, borrows, locations, finance });
+    setSelected(0);
+  }, [query, allItems, allPurchases, allBorrows, allLocations, allTxns, allFundraisers]);
+
   const flat = [
     ...results.items.map((r) => ({ ...r, _type: 'item' })),
     ...results.purchases.map((r) => ({ ...r, _type: 'purchase' })),
     ...results.borrows.map((r) => ({ ...r, _type: 'borrow' })),
+    ...results.locations.map((r) => ({ ...r, _type: 'location' })),
+    ...results.finance.map((r) => ({ ...r, _type: 'finance' })),
   ];
 
   const navigateTo = (result) => {
-    if (result._type === 'item') navigate('/inventory');
-    else if (result._type === 'purchase') navigate('/purchases');
-    else if (result._type === 'borrow') navigate('/borrows');
+    if (result._type === 'item') navigate(`/inventory?item=${encodeURIComponent(result.id)}`);
+    else if (result._type === 'purchase') navigate(`/purchases?highlight=${encodeURIComponent(result.id)}`);
+    else if (result._type === 'borrow') navigate(`/borrows?highlight=${encodeURIComponent(result.id)}`);
+    else if (result._type === 'location') navigate('/locations');
+    else if (result._type === 'finance') {
+      navigate(result._kind === 'fundraiser' ? '/finance/fundraisers' : '/finance/transactions');
+    }
     onClose();
   };
 
@@ -76,7 +114,6 @@ export default function GlobalSearch({ onClose, navigate }) {
   return (
     <div className="modal-overlay items-start pt-16" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="w-full max-w-lg card overflow-hidden shadow-2xl">
-        {/* Input */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-800">
           <span className="text-gray-500 text-lg">🔍</span>
           <input
@@ -85,17 +122,15 @@ export default function GlobalSearch({ onClose, navigate }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKey}
-            placeholder="Search items, purchases, borrows…"
+            placeholder="Search items, purchases, locations, finance…"
             className="flex-1 bg-transparent text-gray-100 placeholder-gray-600 outline-none text-sm"
           />
           {loading && <span className="text-xs text-gray-600">Loading…</span>}
           <button onClick={onClose} className="text-gray-600 hover:text-gray-400 text-xs">Esc</button>
         </div>
 
-        {/* Results */}
         {hasResults ? (
           <div className="max-h-80 overflow-y-auto">
-            {/* Items group */}
             {results.items.length > 0 && (
               <div>
                 <div className="px-4 py-1.5 text-xs text-gray-600 font-medium uppercase tracking-wider bg-gray-900/60 border-b border-gray-800">
@@ -125,10 +160,9 @@ export default function GlobalSearch({ onClose, navigate }) {
               </div>
             )}
 
-            {/* Purchases group */}
             {results.purchases.length > 0 && (
               <div>
-                <div className="px-4 py-1.5 text-xs text-gray-600 font-medium uppercase tracking-wider bg-gray-900/60 border-b border-gray-800 border-t border-t-gray-800">
+                <div className="px-4 py-1.5 text-xs text-gray-600 font-medium uppercase tracking-wider bg-gray-900/60 border-b border-gray-800 border-t">
                   Purchases
                 </div>
                 {results.purchases.map((p) => {
@@ -145,17 +179,15 @@ export default function GlobalSearch({ onClose, navigate }) {
                         <p className="text-sm text-gray-200 truncate">{p.name}</p>
                         <p className="text-xs text-gray-500">{p.status} · {p.category}</p>
                       </div>
-                      <span className="text-xs text-gray-500 flex-shrink-0">×{p.quantity}</span>
                     </div>
                   );
                 })}
               </div>
             )}
 
-            {/* Borrows group */}
             {results.borrows.length > 0 && (
               <div>
-                <div className="px-4 py-1.5 text-xs text-gray-600 font-medium uppercase tracking-wider bg-gray-900/60 border-b border-gray-800 border-t border-t-gray-800">
+                <div className="px-4 py-1.5 text-xs text-gray-600 font-medium uppercase tracking-wider bg-gray-900/60 border-b border-gray-800 border-t">
                   Borrows
                 </div>
                 {results.borrows.map((b) => {
@@ -173,9 +205,50 @@ export default function GlobalSearch({ onClose, navigate }) {
                         <p className="text-sm text-gray-200 truncate">{item?.name || b.itemId}</p>
                         <p className="text-xs text-gray-500">Borrowed by {b.borrowerName}</p>
                       </div>
-                      <span className={`text-xs flex-shrink-0 ${b.status === 'active' ? 'text-amber-400' : 'text-emerald-400'}`}>
-                        {b.status}
-                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {results.locations.length > 0 && (
+              <div>
+                <div className="px-4 py-1.5 text-xs text-gray-600 font-medium uppercase tracking-wider bg-gray-900/60 border-b border-gray-800 border-t">
+                  Locations
+                </div>
+                {results.locations.map((l) => {
+                  const idx = flat.findIndex((f) => f._type === 'location' && f.id === l.id);
+                  return (
+                    <div
+                      key={l.id}
+                      className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${idx === selected ? 'bg-indigo-600/20' : 'hover:bg-gray-800'}`}
+                      onClick={() => navigateTo({ ...l, _type: 'location' })}
+                      onMouseEnter={() => setSelected(idx)}
+                    >
+                      <span className="text-xl">📍</span>
+                      <p className="text-sm text-gray-200">{locationLabel(l, allLocations)}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {results.finance.length > 0 && (
+              <div>
+                <div className="px-4 py-1.5 text-xs text-gray-600 font-medium uppercase tracking-wider bg-gray-900/60 border-b border-gray-800 border-t">
+                  Finance
+                </div>
+                {results.finance.map((f) => {
+                  const idx = flat.findIndex((row) => row._type === 'finance' && row.id === f.id);
+                  return (
+                    <div
+                      key={f.id}
+                      className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${idx === selected ? 'bg-indigo-600/20' : 'hover:bg-gray-800'}`}
+                      onClick={() => navigateTo({ ...f, _type: 'finance' })}
+                      onMouseEnter={() => setSelected(idx)}
+                    >
+                      <span className="text-xl">{f._kind === 'fundraiser' ? '🎉' : '💰'}</span>
+                      <p className="text-sm text-gray-200 truncate">{f._kind === 'fundraiser' ? f.name : f.description}</p>
                     </div>
                   );
                 })}
@@ -186,11 +259,10 @@ export default function GlobalSearch({ onClose, navigate }) {
           <div className="px-4 py-8 text-center text-sm text-gray-600">No results for "{query}"</div>
         ) : (
           <div className="px-4 py-8 text-center text-sm text-gray-600">
-            Type to search inventory, purchases, and borrows…
+            Type to search inventory, purchases, locations, and finance…
           </div>
         )}
 
-        {/* Footer */}
         <div className="border-t border-gray-800 px-4 py-2 flex gap-4 text-xs text-gray-600">
           <span>↑↓ navigate</span>
           <span>↵ open</span>

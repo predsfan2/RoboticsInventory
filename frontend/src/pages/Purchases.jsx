@@ -1,14 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getPurchases, createPurchase, updatePurchase, deletePurchase, setPurchaseStatus } from '../lib/api';
+import { useSearchParams } from 'react-router-dom';
+import {
+  getPurchases, createPurchase, updatePurchase, deletePurchase, setPurchaseStatus, getItems, getLocations,
+} from '../lib/api';
 import { useAuth, useToast } from '../App';
 import { hasPermission } from '../lib/permissions';
 import { CATEGORIES, PRIORITIES, PURCHASE_STATUSES } from '../lib/constants';
 import ConfirmDialog from '../components/ConfirmDialog';
+import LocationSelect from '../components/LocationSelect';
 
 const STATUS_STYLES = {
   Needed: 'badge bg-amber-900/60 text-amber-400 border border-amber-800/50',
   Ordered: 'badge bg-blue-900/60 text-blue-400 border border-blue-800/50',
   Received: 'badge bg-emerald-900/60 text-emerald-400 border border-emerald-800/50',
+  PendingApproval: 'badge bg-purple-900/60 text-purple-300 border border-purple-800/50',
+  Denied: 'badge bg-red-900/60 text-red-400 border border-red-800/50',
 };
 const PRIORITY_STYLES = {
   Low: 'text-gray-500',
@@ -16,20 +22,30 @@ const PRIORITY_STYLES = {
   High: 'text-red-400',
 };
 
-function PurchaseFormModal({ initial, onSave, onClose }) {
+function PurchaseFormModal({ initial, items, locations, onSave, onClose }) {
   const [form, setForm] = useState(initial || {
     name: '', quantity: 1, category: '', priority: 'Medium',
     link: '', status: 'Needed', notes: '', requester: '',
+    estimatedCost: '', vendor: '', linkedItemId: '', receiveLocation: '',
   });
+  const [itemQuery, setItemQuery] = useState('');
   const [saving, setSaving] = useState(false);
   const toast = useToast();
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const linked = (items || []).find((i) => i.id === form.linkedItemId);
+  const matches = itemQuery.trim()
+    ? (items || []).filter((i) => i.name.toLowerCase().includes(itemQuery.toLowerCase())).slice(0, 6)
+    : [];
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
     try {
-      await onSave(form);
+      await onSave({
+        ...form,
+        estimatedCost: parseFloat(form.estimatedCost) || 0,
+        linkedItemId: form.linkedItemId || null,
+      });
       onClose();
     } catch (err) {
       toast(err.message, 'error');
@@ -56,6 +72,14 @@ function PurchaseFormModal({ initial, onSave, onClose }) {
               <input type="number" min="1" className="input" value={form.quantity} onChange={(e) => set('quantity', parseInt(e.target.value) || 1)} />
             </div>
             <div>
+              <label className="block text-xs text-gray-400 mb-1">Estimated cost ($)</label>
+              <input type="number" step="0.01" min="0" className="input" value={form.estimatedCost ?? ''} onChange={(e) => set('estimatedCost', e.target.value)} placeholder="Optional" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Vendor</label>
+              <input className="input" value={form.vendor || ''} onChange={(e) => set('vendor', e.target.value)} />
+            </div>
+            <div>
               <label className="block text-xs text-gray-400 mb-1">Category</label>
               <select className="input" value={form.category} onChange={(e) => set('category', e.target.value)}>
                 <option value="">Select…</option>
@@ -73,6 +97,32 @@ function PurchaseFormModal({ initial, onSave, onClose }) {
               <select className="input" value={form.status} onChange={(e) => set('status', e.target.value)}>
                 {PURCHASE_STATUSES.map((s) => <option key={s}>{s}</option>)}
               </select>
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs text-gray-400 mb-1">Receive into item</label>
+              {linked ? (
+                <div className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2">
+                  <span className="text-sm text-gray-200 flex-1">{linked.name}</span>
+                  <button type="button" className="text-gray-500" onClick={() => set('linkedItemId', '')}>✕</button>
+                </div>
+              ) : (
+                <>
+                  <input className="input" value={itemQuery} onChange={(e) => setItemQuery(e.target.value)} placeholder="Search inventory (optional)…" />
+                  {matches.length > 0 && (
+                    <div className="mt-1 bg-gray-800 border border-gray-700 rounded-lg overflow-hidden">
+                      {matches.map((i) => (
+                        <button key={i.id} type="button" className="w-full text-left px-3 py-2 text-sm hover:bg-gray-700" onClick={() => { set('linkedItemId', i.id); setItemQuery(''); }}>
+                          {i.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs text-gray-400 mb-1">Receive location</label>
+              <LocationSelect locations={locations || []} value={form.receiveLocation || ''} onChange={(v) => set('receiveLocation', v)} emptyLabel="Ask on receive / inherit" />
             </div>
             <div className="col-span-2">
               <label className="block text-xs text-gray-400 mb-1">Link / URL</label>
@@ -100,29 +150,54 @@ function PurchaseFormModal({ initial, onSave, onClose }) {
 export default function Purchases() {
   const { user } = useAuth();
   const toast = useToast();
+  const [searchParams] = useSearchParams();
   const [purchases, setPurchases] = useState([]);
+  const [items, setItems] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editTarget, setEditTarget] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [statusLoading, setStatusLoading] = useState({});
   const [filterStatus, setFilterStatus] = useState('');
+  const [financePrompt, setFinancePrompt] = useState(null);
+  const highlight = searchParams.get('highlight');
+  const fromItem = searchParams.get('fromItem');
 
   const canEdit = hasPermission(user, 'purchases.edit');
   const canDelete = hasPermission(user, 'purchases.edit');
 
   const load = useCallback(() => {
     setLoading(true);
-    getPurchases()
-      .then(setPurchases)
+    Promise.all([getPurchases(), getItems().catch(() => []), getLocations().catch(() => [])])
+      .then(([p, its, locs]) => { setPurchases(p); setItems(its || []); setLocations(locs || []); })
       .catch((e) => toast(e.message, 'error'))
       .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    if (!fromItem || !items.length || addOpen || editTarget) return;
+    const item = items.find((i) => i.id === fromItem);
+    if (item) {
+      setEditTarget({
+        name: item.name,
+        quantity: 1,
+        category: item.category || '',
+        priority: 'Medium',
+        status: 'Needed',
+        notes: '',
+        linkedItemId: item.id,
+        estimatedCost: '',
+        vendor: '',
+      });
+      setAddOpen(true);
+    }
+  }, [fromItem, items]);
+
   const handleSave = async (form) => {
-    if (editTarget) {
+    if (editTarget?.id) {
       await updatePurchase(editTarget.id, form);
       toast('Purchase updated', 'success');
     } else {
@@ -132,15 +207,24 @@ export default function Purchases() {
     load();
   };
 
+  const applyReceived = async (p, createFinanceTransaction) => {
+    await setPurchaseStatus(p.id, 'Received', {
+      createFinanceTransaction,
+      receiveLocation: p.receiveLocation,
+    });
+    toast(createFinanceTransaction ? 'Received and posted to Finance' : 'Received — inventory updated', 'success');
+    load();
+  };
+
   const handleStatusChange = async (p, newStatus) => {
+    if (newStatus === 'Received' && (parseFloat(p.estimatedCost) || 0) > 0) {
+      setFinancePrompt(p);
+      return;
+    }
     setStatusLoading((s) => ({ ...s, [p.id]: true }));
     try {
-      await setPurchaseStatus(p.id, newStatus);
-      if (newStatus === 'Received') {
-        toast(`"${p.name}" marked received — inventory updated`, 'success');
-      } else {
-        toast('Status updated', 'success');
-      }
+      await setPurchaseStatus(p.id, newStatus, { receiveLocation: p.receiveLocation });
+      toast(newStatus === 'Received' ? `"${p.name}" marked received — inventory updated` : 'Status updated', 'success');
       load();
     } catch (e) {
       toast(e.message, 'error');
@@ -173,7 +257,6 @@ export default function Purchases() {
         </div>
       </div>
 
-      {/* Filter by status */}
       <div className="flex gap-2 mb-4 flex-wrap">
         <button onClick={() => setFilterStatus('')} className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${!filterStatus ? 'bg-gray-700 border-gray-600 text-gray-100' : 'border-gray-700 text-gray-500 hover:border-gray-500'}`}>
           All ({purchases.length})
@@ -196,7 +279,7 @@ export default function Purchases() {
       ) : (
         <div className="card overflow-hidden">
           {filtered.map((p, idx) => (
-            <div key={p.id} className={`flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3 ${idx < filtered.length - 1 ? 'border-b border-gray-800' : ''}`}>
+            <div key={p.id} id={`purchase-${p.id}`} className={`flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3 ${idx < filtered.length - 1 ? 'border-b border-gray-800' : ''} ${highlight === p.id ? 'bg-indigo-950/40' : ''}`}>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-0.5">
                   <span className="font-medium text-gray-200">{p.name}</span>
@@ -207,21 +290,22 @@ export default function Purchases() {
                 </div>
                 <div className="flex gap-3 text-xs text-gray-500 flex-wrap">
                   <span>Qty: {p.quantity}</span>
+                  {p.estimatedCost > 0 && <span>${Number(p.estimatedCost).toFixed(2)}</span>}
+                  {p.vendor && <span>{p.vendor}</span>}
                   {p.category && <span>{p.category}</span>}
                   {p.requester && <span>by {p.requester}</span>}
-                  {p.link && <a href={p.link} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">🔗 Link</a>}
+                  {p.denialReason && <span className="text-red-400">Denied: {p.denialReason}</span>}
                 </div>
-                {p.notes && <p className="text-xs text-gray-600 mt-0.5 truncate">{p.notes}</p>}
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
-                {canEdit && (
+                {canEdit && p.status !== 'PendingApproval' && (
                   <select
                     value={p.status}
                     disabled={statusLoading[p.id]}
                     onChange={(e) => handleStatusChange(p, e.target.value)}
                     className="input w-auto text-xs py-1"
                   >
-                    {PURCHASE_STATUSES.map((s) => <option key={s}>{s}</option>)}
+                    {PURCHASE_STATUSES.filter((s) => s !== 'PendingApproval').map((s) => <option key={s}>{s}</option>)}
                   </select>
                 )}
                 {canEdit && (
@@ -239,6 +323,8 @@ export default function Purchases() {
       {(addOpen || editTarget) && (
         <PurchaseFormModal
           initial={editTarget}
+          items={items}
+          locations={locations}
           onSave={handleSave}
           onClose={() => { setAddOpen(false); setEditTarget(null); }}
         />
@@ -251,6 +337,16 @@ export default function Purchases() {
           dangerous
           onConfirm={handleDelete}
           onCancel={() => setDeleteTarget(null)}
+        />
+      )}
+      {financePrompt && (
+        <ConfirmDialog
+          title="Create Finance transaction?"
+          message={`"${financePrompt.name}" has an estimated cost of $${Number(financePrompt.estimatedCost).toFixed(2)}. Create a Finance Purchase transaction now?`}
+          confirmLabel="Yes, post to Finance"
+          cancelLabel="No, stock only"
+          onConfirm={async () => { const p = financePrompt; setFinancePrompt(null); await applyReceived(p, true); }}
+          onCancel={async () => { const p = financePrompt; setFinancePrompt(null); await applyReceived(p, false); }}
         />
       )}
     </div>

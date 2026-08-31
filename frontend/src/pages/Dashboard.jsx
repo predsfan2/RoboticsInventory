@@ -15,7 +15,7 @@ import {
 import { Pie, Line, Bar } from 'react-chartjs-2';
 import {
   getItems, getMoveRequests, getBorrows,
-  getBalance, getTransactions, getBudgets,
+  getBalance, getTransactions, getBudgets, getPendingApprovals,
 } from '../lib/api';
 import { useAuth, useToast } from '../App';
 import { hasPermission, canViewFinanceOverview } from '../lib/permissions';
@@ -66,6 +66,7 @@ export default function Dashboard() {
 
   const [items, setItems] = useState([]);
   const [moveRequests, setMoveRequests] = useState([]);
+  const [pendingApprovals, setPendingApprovals] = useState({ reimbursements: [], purchases: [] });
   const [borrows, setBorrows] = useState([]);
   const [balance, setBalance] = useState(null);
   const [transactions, setTransactions] = useState([]);
@@ -76,15 +77,20 @@ export default function Dashboard() {
       canInventory ? getItems() : Promise.resolve([]),
       hasPermission(user, 'approvals.manage') ? getMoveRequests('pending') : Promise.resolve([]),
       canInventory ? getBorrows() : Promise.resolve([]),
+      hasPermission(user, 'approvals.manage') ? getPendingApprovals().catch(() => ({})) : Promise.resolve({}),
     ];
     if (canFinance) {
       fetches.push(getBalance(), getTransactions(), getBudgets());
     }
     Promise.all(fetches)
-      .then(([it, mr, bo, bal, txns, bud]) => {
+      .then(([it, mr, bo, pending, bal, txns, bud]) => {
         setItems(it || []);
         setMoveRequests(mr || []);
         setBorrows(bo || []);
+        setPendingApprovals({
+          reimbursements: pending.reimbursements || [],
+          purchases: pending.purchases || [],
+        });
         if (bal)  setBalance(bal);
         if (txns) setTransactions(txns);
         if (bud)  setBudgets(bud);
@@ -319,6 +325,9 @@ export default function Dashboard() {
                 <p className="text-xs text-gray-500">{item.category}</p>
               </div>
               <span className="text-sm font-semibold text-amber-400">{item.totalQty}/{item.minStock}</span>
+              {hasPermission(user, 'purchases.edit') && (
+                <Link to={`/purchases?fromItem=${item.id}`} className="btn-secondary text-xs py-1 px-2">Request purchase</Link>
+              )}
             </div>
           ))}
         </div>
@@ -346,24 +355,42 @@ export default function Dashboard() {
         </div>
       )}
 
-      {hasPermission(user, 'approvals.manage') && moveRequests.length > 0 && (
+      {hasPermission(user, 'approvals.manage') && (moveRequests.length > 0 || pendingApprovals.reimbursements.length > 0 || pendingApprovals.purchases.length > 0) && (
         <div className="card overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
-            <h2 className="text-sm font-semibold text-gray-300">📋 Pending Move Requests</h2>
+            <h2 className="text-sm font-semibold text-gray-300">Pending approvals</h2>
             <Link to="/approvals" className="text-xs text-indigo-400 hover:underline">View all →</Link>
           </div>
-          {moveRequests.slice(0, 5).map((mr) => {
+          {moveRequests.slice(0, 4).map((mr) => {
             const item = items.find((i) => i.id === mr.itemId);
             return (
               <div key={mr.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-800/50 last:border-0">
                 <span className="text-xl">📍</span>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-gray-200 truncate">{item?.name || mr.itemId}</p>
-                  <p className="text-xs text-gray-500">→ {mr.requestedLocation} · by {mr.requestedBy}</p>
+                  <p className="text-xs text-gray-500">Move → {mr.requestedLocation} · by {mr.requestedBy}</p>
                 </div>
               </div>
             );
           })}
+          {pendingApprovals.reimbursements.slice(0, 4).map((r) => (
+            <div key={r.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-800/50 last:border-0">
+              <span className="text-xl">💸</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-gray-200 truncate">${Number(r.amount).toFixed(2)} · {r.userName}</p>
+                <p className="text-xs text-gray-500">{r.reason}</p>
+              </div>
+            </div>
+          ))}
+          {pendingApprovals.purchases.slice(0, 4).map((p) => (
+            <div key={p.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-800/50 last:border-0">
+              <span className="text-xl">🛒</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-gray-200 truncate">{p.name}</p>
+                <p className="text-xs text-gray-500">High-priority PO · {p.requester}</p>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

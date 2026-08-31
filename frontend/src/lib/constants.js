@@ -187,7 +187,7 @@ export const CATEGORIES = [
 
 export const PRIORITIES = ['Low', 'Medium', 'High'];
 
-export const PURCHASE_STATUSES = ['Needed', 'Ordered', 'Received'];
+export const PURCHASE_STATUSES = ['Needed', 'Ordered', 'Received', 'PendingApproval', 'Denied'];
 
 export const TRANSACTION_TYPES = [
   'Purchase',

@@ -4,6 +4,10 @@ This is an exhaustive inventory of every user-facing and platform feature in thi
 
 App type: dark-themed inventory + accounting system for robotics teams. React (Vite + Tailwind) frontend, Express backend, flat-file JSON database (`data.json`).
 
+**Shipped since the original catalog:** location rename/merge cascade and one-level parents with optional event dates; kit assemble/break; unit-aware moves and stock remove; purchase cost/vendor/receive-into-item with an optional Finance prompt; High-priority PO approval; ledger reverse-on-delete; qty/unit borrows; event load-out; inventory CSV and print labels; `/account` password + session revoke; login is name+password only (no public roster); unified Approvals inbox; Hub receive/move/reimburse.
+
+See [FEATURE-GAPS.md](FEATURE-GAPS.md) for remaining opportunities (calibration/repair-due is still out of scope).
+
 ---
 
 ## Table of contents
@@ -84,13 +88,14 @@ Unknown routes redirect to `/dashboard`. Permission-blocked routes also redirect
 - **Search** button — opens global search; shows `Ctrl+K` hint
 - Avatar circle with first letter of name
 - Display name and role
+- **Account** (⚙) → `/account` (change own password, sign out other sessions)
 - **Sign out** (⏏)
 
 ### Mobile chrome
 
 - Top bar: hamburger ☰, current page title, search 🔍
 - Overlay drawer: same nav as desktop, close ✕, name/role, **Sign out**
-- Bottom tab bar: first **4** visible nav items only
+- Bottom tab bar: first **4** visible nav items, plus **More** for the rest (and Account)
 - Main content has bottom padding so the tab bar does not cover pages
 
 ### Global search (`Ctrl+K` / `Cmd+K`, Search button, mobile 🔍)
@@ -98,10 +103,11 @@ Unknown routes redirect to `/dashboard`. Permission-blocked routes also redirect
 Command-palette overlay. Searches:
 
 - Inventory (name, category, location, notes, item number) — up to 5
-- Purchases (name, category, notes) — up to 3
+- Purchases (name, category, notes, vendor) — up to 3
 - Borrows (item name, borrower name) — up to 3
+- Locations and finance descriptions / fundraisers
 
-Keyboard: ↑↓ navigate, Enter open (goes to `/inventory`, `/purchases`, or `/borrows`), Esc close. Click overlay to close. Footer shows result count.
+Keyboard: ↑↓ navigate, Enter open (deep-links `/inventory?item=id`, `/purchases?highlight=id`, `/borrows?highlight=id`), Esc close. Click overlay to close. Footer shows result count. USB barcode scanners type into this search or Inventory `?q=`.
 
 ### Toasts
 
@@ -121,24 +127,22 @@ JWT stored in `localStorage` (`rt_token`, `rt_user`) and as HttpOnly cookie `rt_
 
 ### Login page (`/login`)
 
-- Robot emoji, “Robotics Inventory”, “Sign in to continue”
-- Loads public username directory (`GET /api/auth/usernames` — names and roles, no passwords)
-- Account picker grid (2–3 columns): each user is a button with role-colored border, role icon, name, role
-  - Admin 👑, Manager 🔑, Accounting Admin 💹, Member 👤, Viewer 👁
-- After selecting an account: password field (“Password for {name}”)
-- If username list fails: fallback username text field
-- **Sign In** (disabled until an account is selected when the picker is shown)
+- Robot emoji, “Robotics Inventory”, name + password fields (no public username directory)
+- **Sign In**
 - Error banner for invalid credentials
 - Dev-only hint: `Admin / admin123`
 - Logged-in users hitting `/login` are redirected to `/dashboard`
+- `mustChangePassword` users are sent to `/account` until they set a new password
 
 ### Login API behavior
 
 - Rate limited: 30 attempts / 15 minutes
 - Case-insensitive name match
 - Passwords hashed with bcrypt (legacy plaintext accepted until migration hashes them)
+- JWT includes `tokenVersion`; password change and “sign out other sessions” increment it
 - Sets HttpOnly `rt_token` cookie (SameSite=Lax, Secure in production, 7-day Max-Age)
 - Returns JWT + user without password
+- Query-string `?token=` is not accepted (Bearer or cookie only)
 
 ### Logout
 
@@ -968,14 +972,15 @@ Conditions: New, Good, Fair, Poor (color badges).
 
 ## 21. REST API surface
 
-All `/api/*` except health, login, usernames, logout require auth. Permission shown in parentheses.
+All `/api/*` except health, login, and logout require auth. Permission shown in parentheses.
 
 ### Auth / health
 
 - `GET /api/health`
-- `GET /api/auth/usernames`
 - `POST /api/auth/login`
 - `POST /api/auth/logout`
+- `POST /api/auth/password` (signed-in user; min 6 chars; increments `tokenVersion`)
+- `POST /api/auth/revoke-sessions` (sign out other sessions)
 
 ### Items
 
@@ -987,6 +992,7 @@ All `/api/*` except health, login, usernames, logout require auth. Permission sh
 - `POST /api/items/:id/condition` (edit, or view if not Viewer)
 - `POST /api/items/:id/move-request` (moves.request)
 - `POST /api/items/:id/move` (moves.approve)
+- `POST /api/items/:id/assemble` / `/break` (inventory.edit) — kit BOM stock in/out; nested kits rejected
 - `GET /api/items/:id/units` (inventory.view)
 - `PUT /api/items/units/:unitId` (inventory.edit)
 - `POST /api/items/:id/image` (inventory.edit)
@@ -999,9 +1005,9 @@ All `/api/*` except health, login, usernames, logout require auth. Permission sh
 
 - `GET /api/move-requests?status=` (moves.approve or approvals.manage)
 - `POST /api/move-requests/:id/approve` / `.../deny`
-- `GET|POST /api/purchases`, `GET|PUT|DELETE /api/purchases/:id`, `PATCH /api/purchases/:id/status`
+- `GET|POST /api/purchases`, `GET|PUT|DELETE /api/purchases/:id`, `PATCH /api/purchases/:id/status`, `POST /api/purchases/:id/approve`, `/deny`
 - `GET|POST /api/borrows`, `GET|PUT|DELETE /api/borrows/:id`, `POST /api/borrows/:id/return`
-- `GET /api/approvals/pending`
+- `GET /api/approvals/pending`, `GET /api/approvals/history`
 
 ### Accounting
 
@@ -1009,13 +1015,14 @@ All `/api/*` except health, login, usernames, logout require auth. Permission sh
 - Transactions: list, balance, create, import, update, delete
 - Budgets, goals (`/add-funds`, `/link-transaction`)
 - Reimbursements create/approve/deny/delete
-- Fundraisers + `/donations` + `/quick-total`
+- Fundraisers + `/donations` (PUT/DELETE per entry) + `/quick-total`
 - Reports: `/reports/balance-sheet`, `/reports/budget-vs-actual`, `/reports/donations`
 
 ### Admin
 
 - Users CRUD + `POST /api/users/:id/password`
-- Locations CRUD (`GET` also allowed with inventory.view)
+- Locations CRUD + `POST /api/locations/:id/merge`, `POST /api/locations/:id/move-all`
+- `POST /api/auth/password`, `POST /api/auth/revoke-sessions`
 - Custom-fields CRUD (`GET` also allowed with inventory.view)
 
 ### Logs
@@ -1040,7 +1047,7 @@ Copied to `data.json` on first boot:
 - Locations: Shop Storage, Team Trailer, School Lab, Offsite Storage
 - A populated inventory (tools, electronics, etc. with condition/location logs)
 
-Change the Admin password immediately on a real deployment.
+Change the Admin password immediately on a real deployment. Seed Admin has `mustChangePassword` off; other new users default to on.
 
 ---
 

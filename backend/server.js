@@ -8,12 +8,13 @@ const path = require('path');
 const fs = require('fs');
 const fsPromises = require('fs').promises;
 
-const { readData, DATA_DIR } = require('./utils/storage');
+const { readData, withData, DATA_DIR } = require('./utils/storage');
 const { migrate } = require('./utils/migration');
 const {
   attachUser,
   requireAuth,
   verifyPassword,
+  hashPassword,
   signToken,
   stripPassword,
   setAuthCookie,
@@ -113,17 +114,7 @@ function createApp() {
     message: { error: 'Too many login attempts. Try again later.' },
   });
 
-  // Public: login name directory (no passwords)
-  app.get('/api/auth/usernames', (_req, res) => {
-    const data = readData();
-    const users = (data['rt:users'] || []).map((u) => ({
-      id: u.id,
-      name: u.name,
-      role: u.role,
-    }));
-    res.json(users);
-  });
-
+  // Login is name + password only (no public roster)
   app.post('/api/auth/login', loginLimiter, (req, res) => {
     const { name, password } = req.body || {};
     if (!name || !password) {
@@ -146,12 +137,63 @@ function createApp() {
     res.json({ success: true });
   });
 
+  app.post('/api/auth/password', requireAuth, async (req, res) => {
+    const currentPassword = req.body && req.body.currentPassword;
+    const password = req.body && req.body.password;
+    if (!password || String(password).length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+    try {
+      const result = await withData(async (data) => {
+        const user = (data['rt:users'] || []).find((u) => u.id === req.user.id);
+        if (!user) {
+          const err = new Error('User not found');
+          err.status = 404;
+          throw err;
+        }
+        if (currentPassword && !verifyPassword(currentPassword, user.password)) {
+          const err = new Error('Current password is incorrect');
+          err.status = 400;
+          throw err;
+        }
+        user.password = hashPassword(password);
+        user.tokenVersion = (user.tokenVersion || 0) + 1;
+        user.mustChangePassword = false;
+        const token = signToken(user);
+        return { user: stripPassword(user), token };
+      });
+      setAuthCookie(res, result.token);
+      res.json(result);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/auth/revoke-sessions', requireAuth, async (req, res) => {
+    try {
+      const result = await withData(async (data) => {
+        const user = (data['rt:users'] || []).find((u) => u.id === req.user.id);
+        if (!user) {
+          const err = new Error('User not found');
+          err.status = 404;
+          throw err;
+        }
+        user.tokenVersion = (user.tokenVersion || 0) + 1;
+        const token = signToken(user);
+        return { user: stripPassword(user), token };
+      });
+      setAuthCookie(res, result.token);
+      res.json({ success: true, token: result.token, user: result.user });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
   // All other API routes require authentication
   app.use('/api', (req, res, next) => {
     if (
       req.path === '/health' ||
       req.path === '/auth/login' ||
-      req.path === '/auth/usernames' ||
       req.path === '/auth/logout'
     ) {
       return next();
